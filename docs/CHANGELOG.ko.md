@@ -15,7 +15,7 @@
 
 ### 배경
 
-v0.2.2 / v0.2.2.1 가 같은 기능들의 첫 시도였지만 실설치에서 깨짐 (PS창 폭주, "Another user is signed in" 다이얼로그, install timeout, compose 의 `8765` 포트 매핑 누락으로 `/exec` RST). 2026-04-29 main 을 v0.2.1 로 롤백하고 명시적 anti-goal 와 함께 agent + transport 처음부터 재설계 (`docs/AGENT_V2_DESIGN.md` 참고). v0.3.0 이 그 재설계 구현; `0.2.2.x` 태그는 timeline 에 남아있지만 사용하지 말 것.
+v0.2.2 / v0.2.2.1 가 같은 기능들의 첫 시도였지만 실설치에서 깨짐 (PS창 폭주, "Another user is signed in" 다이얼로그, install timeout, compose 의 `8765` 포트 매핑 누락으로 `/exec` RST). 2026-04-29 main 을 v0.2.1 로 롤백하고 명시적 anti-goal 와 함께 agent + transport 처음부터 재설계 (`docs/AGENT_V2_DESIGN.md` 참고). v0.3.0 이 그 재설계 구현; `0.2.2.x` 태그는 혼란 방지를 위해 삭제됨 — `v0.2.1` 에서 바로 `v0.3.0-RTM1` 로.
 
 ### 추가
 - **HTTP guest agent (rev4).** `agent.ps1` 가 Windows 안 `127.0.0.1:8765` 에서 동작, `+:8765` 로 바인드해서 QEMU user-mode NAT 통과. Bearer-authed `/exec` (base64 인코딩 PowerShell 페이로드) 가 FreeRDP RemoteApp 을 기본 host→guest 채널에서 대체; `/health` 는 readiness probe 위해 unauthenticated 유지. child PS 는 `[Diagnostics.Process]` + `CreateNoWindow=$true` + 비동기 `ReadToEndAsync` 로 spawn — PS창 깜빡임 없음, pipe buffer deadlock 없음. 토큰은 OEM bind mount 로 전달 (호스트 mode `0600`, gitignored).

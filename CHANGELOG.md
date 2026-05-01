@@ -15,7 +15,7 @@ Major release — modular core, HTTP guest agent, and a comprehensive health-che
 
 ### Background
 
-v0.2.2 / v0.2.2.1 were an earlier attempt at these features that landed broken on real installs (PS-window storms, "Another user is signed in" dialogs, install timeouts, RST from `/exec` because compose was missing the `8765` port mapping). main was rolled back to v0.2.1 on 2026-04-29 and the agent + transport feature redesigned from scratch with explicit anti-goals (see `docs/AGENT_V2_DESIGN.md`). v0.3.0 is that redesigned implementation; the `0.2.2.x` tags exist on the timeline but should not be used.
+v0.2.2 / v0.2.2.1 were an earlier attempt at these features that landed broken on real installs (PS-window storms, "Another user is signed in" dialogs, install timeouts, RST from `/exec` because compose was missing the `8765` port mapping). main was rolled back to v0.2.1 on 2026-04-29 and the agent + transport feature redesigned from scratch with explicit anti-goals (see `docs/AGENT_V2_DESIGN.md`). v0.3.0 is that redesigned implementation; the `0.2.2.x` tags have been deleted to avoid confusion — go directly from `v0.2.1` to `v0.3.0-RTM1`.
 
 ### Added
 - **HTTP guest agent (rev4).** `agent.ps1` runs inside Windows on `127.0.0.1:8765`, bound via `+:8765` so QEMU's user-mode NAT can reach it. Bearer-authed `/exec` (base64-encoded PowerShell payloads) replaces FreeRDP RemoteApp as the default host→guest command channel; `/health` stays unauthenticated for the readiness probe. Child PS spawned via `[Diagnostics.Process]` + `CreateNoWindow=$true` + async `ReadToEndAsync` — no PS-window flashes, no pipe-buffer deadlocks. Token delivered via the OEM bind mount (mode `0600` on host, gitignored).
