@@ -459,9 +459,14 @@ Write-WinpodxProgress 'Emitting essential apps (File Explorer / Calculator / Set
 try {
     $explorer = Join-Path $env:WINDIR 'explorer.exe'
     if (Test-Path -LiteralPath $explorer) {
+        # Pull the real description from explorer.exe's VersionInfo via the
+        # same Get-AppDescription helper Source 1-4 use — no hardcoded
+        # string. Stock Win11 returns "Microsoft® Windows® Operating
+        # System" (ProductName, since it differs from FileDescription
+        # "Windows Explorer").
         Add-Result @{
             name          = 'File Explorer'
-            description   = 'Browse files and folders on the Windows guest'
+            description   = Get-AppDescription $explorer
             path          = $explorer
             args          = 'shell:MyComputerFolder'
             source        = 'win32'
