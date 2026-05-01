@@ -51,7 +51,7 @@ Existing tools for running Windows apps on Linux all have trade-offs:
 
 | | winapps | LinOffice | winboat | winpodx |
 |---|---|---|---|---|
-| Core tech | Any RDP-capable Windows host (cloud / physical / container) + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | Any RDP-capable Windows host (cloud / physical / container) + FreeRDP + HTTP guest agent |
+| Core tech | Any RDP-capable Windows host (cloud / physical / container) + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | dockur (Podman) + FreeRDP + HTTP guest agent |
 | Setup | Manual (shell + config + RDP testing) | One-liner script | One-click GUI installer | **Zero-config** (auto on first launch) |
 | Interface | CLI only | CLI only | Electron GUI | **Qt6 GUI + CLI + tray** |
 | App scope | Any Windows app | Office only | Any Windows app | Any Windows app |

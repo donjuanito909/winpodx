@@ -47,7 +47,7 @@ Linux에서 Windows 앱을 실행하는 기존 도구들은 각각 한계가 있
 
 | | winapps | LinOffice | winboat | winpodx |
 |---|---|---|---|---|
-| 핵심 기술 | RDP 가능한 Windows 호스트 (클라우드 / 물리 / 컨테이너) + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | RDP 가능한 Windows 호스트 (클라우드 / 물리 / 컨테이너) + FreeRDP + HTTP guest agent |
+| 핵심 기술 | RDP 가능한 Windows 호스트 (클라우드 / 물리 / 컨테이너) + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | dockur (Podman) + FreeRDP + HTTP guest agent |
 | 설정 | 수동 (셸 + 설정 파일 + RDP 테스트) | 원라인 스크립트 | 원클릭 GUI 설치 | **제로 설정** (첫 실행 시 자동) |
 | 인터페이스 | CLI 만 | CLI 만 | Electron GUI | **Qt6 GUI + CLI + 트레이** |
 | 앱 범위 | 모든 Windows 앱 | Office 전용 | 모든 Windows 앱 | 모든 Windows 앱 |
