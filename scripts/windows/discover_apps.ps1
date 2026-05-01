@@ -378,6 +378,111 @@ foreach ($d in $shimDirs) {
     } catch { }
 }
 
+# --- Source 5: Essentials (always emit) ------------------------------------
+#
+# OS staples (File Explorer, Calculator, Settings) sometimes fall through
+# the previous sources — File Explorer has no Start Menu .lnk, and UWP apps
+# whose DisplayName is an unresolved ms-resource: lookup get filtered as
+# junk by the host because their fallback name is a dotted package id.
+# Emit them explicitly here with proper icons + launch args so the host
+# always shows them in the app menu without resorting to synthesized stubs.
+
+Write-WinpodxProgress 'Emitting essential apps (File Explorer / Calculator / Settings)...'
+
+# File Explorer — must launch with a shell: argument so RemoteApp opens a
+# window instead of trying to take over as the user shell. ``shell:MyComputerFolder``
+# opens the "This PC" view; the cmd: side propagates as explorer.exe args.
+try {
+    $explorer = Join-Path $env:WINDIR 'explorer.exe'
+    if (Test-Path -LiteralPath $explorer) {
+        Add-Result @{
+            name          = 'File Explorer'
+            path          = $explorer
+            args          = 'shell:MyComputerFolder'
+            source        = 'win32'
+            wm_class_hint = 'explorer'
+            launch_uri    = ''
+            icon_b64      = ConvertTo-IconBase64 $explorer
+        }
+    }
+} catch { }
+
+# Resolve a UWP package by family-name prefix and emit the entry, pulling
+# the icon from the same AppxManifest path the main UWP scan uses. Skips
+# silently if the package isn't installed (some Windows SKUs ship without
+# Calculator on the Server image, for example).
+function Emit-EssentialUwp([string]$FamilyPrefix, [string]$DisplayName, [string]$AppId, [string]$WmClassHint) {
+    try {
+        $pkg = Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue |
+            Where-Object { $_.PackageFamilyName -like "$FamilyPrefix*" } |
+            Select-Object -First 1
+        if (-not $pkg) { return }
+        if (-not $pkg.InstallLocation) { return }
+        $manifestPath = Join-Path $pkg.InstallLocation 'AppxManifest.xml'
+        if (-not (Test-Path -LiteralPath $manifestPath)) { return }
+        [xml]$manifest = Get-Content -LiteralPath $manifestPath -ErrorAction SilentlyContinue
+        if (-not $manifest) { return }
+
+        $aumid = "$($pkg.PackageFamilyName)!$AppId"
+
+        # Mine the same Square logo path the main UWP block uses so the
+        # icon matches what users see in Start Menu.
+        $logoRel = ''
+        try {
+            $apps = $manifest.Package.Applications.Application
+            if ($apps -isnot [System.Collections.IEnumerable]) { $apps = @($apps) }
+            foreach ($appNode in $apps) {
+                if ([string]$appNode.Id -ne $AppId) { continue }
+                $ve = $null
+                foreach ($probe in 'VisualElements', 'uap:VisualElements') {
+                    try {
+                        $probed = $appNode.$probe
+                        if ($probed) { $ve = $probed; break }
+                    } catch { }
+                }
+                if ($ve) {
+                    foreach ($attr in 'Square44x44Logo', 'Square30x30Logo', 'SmallLogo', 'Logo') {
+                        try {
+                            $val = [string]$ve.$attr
+                            if ($val) { $logoRel = $val; break }
+                        } catch { }
+                    }
+                }
+                break
+            }
+        } catch { }
+
+        $iconB64 = ''
+        if ($logoRel) {
+            $logoPath = Join-Path $pkg.InstallLocation $logoRel
+            $iconB64 = Read-IconBytesFromFile $logoPath
+            if (-not $iconB64) {
+                $parent = [System.IO.Path]::GetDirectoryName($logoPath)
+                $stem = [System.IO.Path]::GetFileNameWithoutExtension($logoPath)
+                $ext = [System.IO.Path]::GetExtension($logoPath)
+                foreach ($scale in '100', '200', '400') {
+                    $scaled = Join-Path $parent "$stem.scale-$scale$ext"
+                    $iconB64 = Read-IconBytesFromFile $scaled
+                    if ($iconB64) { break }
+                }
+            }
+        }
+
+        Add-Result @{
+            name          = $DisplayName
+            path          = [string]$pkg.InstallLocation
+            args          = ''
+            source        = 'uwp'
+            wm_class_hint = $WmClassHint
+            launch_uri    = $aumid
+            icon_b64      = $iconB64
+        }
+    } catch { }
+}
+
+Emit-EssentialUwp 'Microsoft.WindowsCalculator_' 'Calculator' 'App' 'calculator'
+Emit-EssentialUwp 'windows.immersivecontrolpanel_' 'Settings' 'microsoft.windows.immersivecontrolpanel' 'settings'
+
 # --- Emit JSON -------------------------------------------------------------
 
 $output = $results.ToArray()

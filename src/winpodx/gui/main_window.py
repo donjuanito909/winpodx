@@ -2220,7 +2220,13 @@ class WinpodxWindow(QMainWindow):
                 from winpodx.core.rdp import launch_app
 
                 cfg = ensure_ready()
-                session = launch_app(cfg, app.executable)
+                session = launch_app(
+                    cfg,
+                    app.executable,
+                    launch_uri=app.launch_uri or None,
+                    wm_class_hint=app.wm_class_hint or None,
+                    default_args=app.args or None,
+                )
             except Exception:
                 import traceback
 

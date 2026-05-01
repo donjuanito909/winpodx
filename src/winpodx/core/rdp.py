@@ -169,6 +169,7 @@ def build_rdp_command(
     auto_scale: bool = True,
     launch_uri: str | None = None,
     wm_class_hint: str | None = None,
+    default_args: str | None = None,
 ) -> tuple[list[str], str]:
     """Build the xfreerdp command line for launching an app.
 
@@ -259,6 +260,15 @@ def build_rdp_command(
                 # Convert to RuntimeError so CLI (_run_app) surfaces it to the user.
                 raise RuntimeError(f"Cannot open file: {e}") from e
             app_arg += f",cmd:{unc_path}"
+        elif default_args:
+            # File Explorer needs a shell: argument so RemoteApp opens a
+            # window instead of taking over as the user shell. Discovery
+            # stores that argument in the `args` field of app.toml; pass
+            # it as cmd: when no user-supplied file_path is overriding.
+            # default_args is ALREADY a string the user (or discovery)
+            # blessed; we only neutralize FreeRDP separators.
+            sanitized = default_args.replace(",", " ")
+            app_arg += f",cmd:{sanitized}"
         cmd.append(app_arg)
         cmd.append(f"/wm-class:{name_token}")
         cmd.append("+grab-keyboard")
@@ -420,6 +430,7 @@ def launch_app(
     file_path: str | None = None,
     launch_uri: str | None = None,
     wm_class_hint: str | None = None,
+    default_args: str | None = None,
 ) -> RDPSession:
     """Launch a Windows app via RDP and return the session handle.
 
@@ -458,6 +469,7 @@ def launch_app(
         file_path=file_path,
         launch_uri=launch_uri,
         wm_class_hint=wm_class_hint,
+        default_args=default_args,
     )
 
     log.info("Launching RDP: %s", " ".join(cmd))

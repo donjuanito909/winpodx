@@ -157,11 +157,40 @@ def _is_junk_entry(name: str, executable: str, source: str) -> bool:
     # UWP entries whose DisplayName failed to resolve fall back to
     # PackageFamilyName (e.g. "Microsoft.AAD.BrokerPlugin"). Real
     # user-facing UWP apps almost always have spaces or non-dotted
-    # names ("Calculator", "Microsoft To Do").
+    # names ("Calculator", "Microsoft To Do"). Allowlist the dotted
+    # names we know are real apps so legitimate Microsoft.* packages
+    # aren't dropped along with the junk plumbing.
     if source == "uwp" and "." in name_stripped and " " not in name_stripped:
-        return True
+        if name_stripped.lower() not in _UWP_DOTTED_ALLOWLIST:
+            return True
 
     return False
+
+
+# Known-good UWP package names whose DisplayName resolves to a dotted
+# identifier rather than a human label (because the manifest's display
+# name uses an ms-resource: indirection that PowerShell can't resolve in
+# a non-interactive session). Comparison is lowercase.
+_UWP_DOTTED_ALLOWLIST = frozenset(
+    n.lower()
+    for n in (
+        "Microsoft.WindowsCalculator",
+        "Microsoft.WindowsTerminal",
+        "Microsoft.Paint",
+        "Microsoft.ScreenSketch",
+        "Microsoft.WindowsCamera",
+        "Microsoft.WindowsAlarms",
+        "Microsoft.WindowsMaps",
+        "Microsoft.WindowsSoundRecorder",
+        "Microsoft.WindowsNotepad",
+        "Microsoft.MicrosoftStickyNotes",
+        "Microsoft.MSPaint",
+        "Microsoft.GetHelp",
+        "Microsoft.YourPhone",
+        "Microsoft.Todos",
+        "windows.immersivecontrolpanel",
+    )
+)
 
 
 class DiscoveryError(RuntimeError):
@@ -233,6 +262,10 @@ ESSENTIAL_APPS: tuple[dict[str, str], ...] = (
         "name": "file-explorer",
         "full_name": "File Explorer",
         "executable": "C:\\Windows\\explorer.exe",
+        # explorer.exe launched without arguments tries to take over as
+        # the user shell — RemoteApp shows nothing. shell:MyComputerFolder
+        # opens the "This PC" view as a normal explorer window instead.
+        "args": "shell:MyComputerFolder",
         "wm_class_hint": "explorer",
         "source": "win32",
     },
@@ -339,6 +372,7 @@ def _merge_essentials(scanned: list[DiscoveredApp]) -> list[DiscoveredApp]:
                 name=slug,
                 full_name=spec.get("full_name", slug),
                 executable=spec.get("executable", ""),
+                args=spec.get("args", ""),
                 source=spec.get("source", "win32"),
                 wm_class_hint=spec.get("wm_class_hint", ""),
                 launch_uri=spec.get("launch_uri", ""),

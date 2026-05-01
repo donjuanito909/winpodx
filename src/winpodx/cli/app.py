@@ -234,7 +234,14 @@ def _run_app(name: str, file: str | None, wait: bool) -> None:
         sys.exit(1)
 
     try:
-        session = launch_app(cfg, app_info.executable, file)
+        session = launch_app(
+            cfg,
+            app_info.executable,
+            file,
+            launch_uri=app_info.launch_uri or None,
+            wm_class_hint=app_info.wm_class_hint or None,
+            default_args=app_info.args or None,
+        )
 
         if wait and session.process:
             session.process.wait()
