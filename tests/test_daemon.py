@@ -110,6 +110,15 @@ def test_sync_windows_time_uses_windows_exec_channel(monkeypatch):
         captured["description"] = description
         return WindowsExecResult(rc=0, stdout="time synced", stderr="")
 
+    # Force the FreeRDP fallback path so the run_in_windows stub is reachable.
+    # On a dev box where a real winpodx agent is listening on 127.0.0.1:8765,
+    # transport.dispatch picks AgentTransport and bypasses run_in_windows;
+    # making dispatch raise routes the call through the FreeRDP branch
+    # exactly as run_via_transport's contract documents.
+    def _no_agent(_cfg, **_kw):
+        raise RuntimeError("agent transport disabled for tests")
+
+    monkeypatch.setattr("winpodx.core.transport.dispatch", _no_agent)
     monkeypatch.setattr("winpodx.core.windows_exec.run_in_windows", fake)
     assert sync_windows_time(cfg) is True
     assert "w32tm" in captured["payload"]

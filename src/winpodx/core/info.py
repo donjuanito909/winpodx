@@ -58,19 +58,19 @@ def _bundled_oem_version() -> str:
     if text:
         return text
 
-    for path in (oem / "install.bat",):
-        try:
-            with path.open("r", encoding="utf-8", errors="replace") as fh:
-                # The version line lives in the first ~5 lines of install.bat;
-                # cap iteration so we never scan the whole file.
-                for _, line in zip(range(20), fh):
-                    stripped = line.strip()
-                    if stripped.lower().startswith("set winpodx_oem_version="):
-                        value = stripped.split("=", 1)[1].strip()
-                        if value:
-                            return value
-        except (FileNotFoundError, OSError):
-            continue
+    install_bat = oem / "install.bat"
+    try:
+        with install_bat.open("r", encoding="utf-8", errors="replace") as fh:
+            # The version line lives in the first ~5 lines of install.bat;
+            # cap iteration so we never scan the whole file.
+            for _, line in zip(range(20), fh):
+                stripped = line.strip()
+                if stripped.lower().startswith("set winpodx_oem_version="):
+                    value = stripped.split("=", 1)[1].strip()
+                    if value:
+                        return value
+    except (FileNotFoundError, OSError):
+        pass
     return "(unknown)"
 
 

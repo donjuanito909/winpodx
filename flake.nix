@@ -11,6 +11,12 @@
         "aarch64-linux"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+      # Single source of truth for the package version. Reading from
+      # pyproject.toml at evaluation time keeps the Nix store path
+      # (winpodx-<version>) in sync with the Python distribution version
+      # automatically — no need to bump two files at release time.
+      pyprojectVersion = (builtins.fromTOML (builtins.readFile ./pyproject.toml)).project.version;
     in
     {
       packages = forAllSystems (
@@ -35,7 +41,7 @@
 
           winpodx = python.pkgs.buildPythonApplication {
             pname = "winpodx";
-            version = "0.3.0";
+            version = pyprojectVersion;
             pyproject = true;
 
             src = lib.cleanSource ./.;
