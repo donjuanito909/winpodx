@@ -21,47 +21,65 @@ $ErrorActionPreference = 'Stop'
 
 # IApplicationActivationManager — Windows shell COM interface for launching
 # packaged apps by AUMID. Documented in MSDN; available since Windows 8.
-# CLSID 45BA127D-10A8-46EA-8AB7-56EA9078943C (ApplicationActivationManager class)
-# IID   2E941141-7F97-4756-BA1D-9DECDE894A3D (IApplicationActivationManager)
+#
+# Why a C# helper instead of calling the COM object directly from PowerShell:
+# the interface (IID 2E941141-...) inherits IUnknown only, not IDispatch, so
+# PS's dynamic-method dispatch can't find ActivateApplication ("does not
+# contain a method named 'ActivateApplication'"). And the PowerShell-level
+# cast `[IApplicationActivationManager]$rcw` doesn't carry the QueryInterface
+# the CLR needs. Doing both inside a compiled C# scope works because the
+# managed cast there resolves to a real COM QI.
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 
-[ComImport,
- Guid("2E941141-7F97-4756-BA1D-9DECDE894A3D"),
+[ComImport, Guid("2E941141-7F97-4756-BA1D-9DECDE894A3D"),
  InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 public interface IApplicationActivationManager
 {
     int ActivateApplication(
-        [In] string appUserModelId,
-        [In] string arguments,
-        [In] int options,
-        [Out] out uint processId);
+        [MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+        [MarshalAs(UnmanagedType.LPWStr)] string arguments,
+        int options,
+        out uint processId);
+
     int ActivateForFile(
-        [In] string appUserModelId,
-        [In] IntPtr itemArray,
-        [In] string verb,
-        [Out] out uint processId);
+        [MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+        IntPtr itemArray,
+        [MarshalAs(UnmanagedType.LPWStr)] string verb,
+        out uint processId);
+
     int ActivateForProtocol(
-        [In] string appUserModelId,
-        [In] IntPtr itemArray,
-        [Out] out uint processId);
+        [MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+        IntPtr itemArray,
+        out uint processId);
 }
 
-[ComImport, Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")]
-public class ApplicationActivationManagerImpl { }
-"@
+public static class WinpodxUwpLauncher
+{
+    public static uint Activate(string aumid)
+    {
+        Type t = Type.GetTypeFromCLSID(new Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C"));
+        if (t == null)
+            throw new InvalidOperationException("ApplicationActivationManager CLSID not registered");
+        object instance = Activator.CreateInstance(t);
+        IApplicationActivationManager iam = (IApplicationActivationManager)instance;
+        uint pid;
+        int hr = iam.ActivateApplication(aumid, null, 0, out pid);
+        if (hr < 0)
+            throw new InvalidOperationException("ActivateApplication HRESULT 0x" + hr.ToString("X8"));
+        return pid;
+    }
+}
+"@ -ErrorAction Stop
 
 try {
-    $aam = [IApplicationActivationManager]([ApplicationActivationManagerImpl]::new())
-    [uint32]$pid = 0
-    [void]$aam.ActivateApplication($Aumid, $null, 0, [ref]$pid)
+    [void][WinpodxUwpLauncher]::Activate($Aumid)
     exit 0
 } catch {
     # Don't surface to the user with a console — write to a log the agent can
-    # tail. We swallow the failure here; if activation truly fails (bad AUMID,
-    # unregistered package), the user just sees nothing happen — same as the
-    # legacy explorer.exe path on a typo'd AUMID.
+    # tail. Swallowing keeps RemoteApp's "session ended" return code clean
+    # rather than dumping an uncaught .NET stack on the silent path.
     try {
         $logDir = Join-Path $env:LOCALAPPDATA 'winpodx'
         if (-not (Test-Path $logDir)) {
