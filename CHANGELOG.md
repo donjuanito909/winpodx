@@ -10,8 +10,13 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ## [Unreleased]
 
 ### Added
-- **`winpodx check` health probes.** New CLI command runs a fast multi-source health audit (pod running, RDP port, agent /health, OEM bundle version, password rotation age, discovered apps count, host disk free) and prints one line per probe with `OK` / `WARN` / `FAIL` / `SKIP` and per-probe duration. `--json` emits machine-readable output for scripting. Exit code is `0` unless any probe is `FAIL`.
-- **GUI Info page Health card.** The Info page gains a top "Health" section that runs the same probes as `winpodx check` and renders each with a coloured status badge plus the overall verdict. Refreshes whenever the user clicks Refresh Info.
+- **`winpodx check` health probes.** New CLI command runs a fast multi-source health audit and prints one line per probe with `OK` / `WARN` / `FAIL` / `SKIP` and per-probe duration. `--json` emits machine-readable output for scripting. Exit code is `0` unless any probe is `FAIL`. Probes:
+  - `pod_running`, `rdp_port`, `agent_health` — surface bring-up state
+  - `guest_exec` — POSTs `/exec` with a trivial `Write-Output ok` and verifies rc=0 + stdout="ok". Proves the host→guest channel actually round-trips, not just that `/health` answers
+  - `guest_summary` — single `/exec` returning Windows version + uptime + current user + active session count + C: free space
+  - `oem_version`, `password_age`, `apps_discovered`, `disk_free` — host-side state
+- **GUI Info page Health card with auto-refresh.** The Info page gains a top "Health" section that renders each probe with a coloured status badge plus the overall verdict. While the page is visible the card auto-refreshes every 30 s; off-page the timer is paused so the guest isn't polled while idle.
+- **Sidebar transport indicators.** The pod chip in the top bar now shows two extra letter dots — `A` (guest agent) and `R` (RDP port) — that turn green when reachable and red when not. Hover surfaces "agent OK (version)" / "host→guest commands fall back to FreeRDP RemoteApp" tooltips so the user sees at a glance which channel will service the next launch. Updated by the existing 15 s pod-status timer.
 
 ### Fixed
 - **Discovery script path off by one.** `_ps_script_path` walked four `.parent`s and resolved to `<root>/src/scripts/windows/discover_apps.ps1`, which never exists in any layout. Walked five now so the resolution lands on the actual `<root>/scripts/windows/` directory; clicking GUI Refresh stops popping the "Pod Not Running" dialog when the pod is fine.

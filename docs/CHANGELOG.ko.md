@@ -10,8 +10,13 @@
 ## [Unreleased]
 
 ### 추가
-- **`winpodx check` 헬스 프로브.** 새 CLI 명령어가 멀티 소스 헬스 점검 (pod 동작 / RDP 포트 / agent /health / OEM 번들 버전 / 비밀번호 회전 만료 / 디스커버리된 앱 수 / 호스트 디스크 여유) 을 한 번에 실행하고 각 프로브를 `OK` / `WARN` / `FAIL` / `SKIP` 와 측정 시간으로 출력. `--json` 로 머신 판독용 출력. exit code 는 어떤 프로브든 `FAIL` 일 때만 `1`.
-- **GUI Info 페이지에 Health 카드 추가.** Info 페이지 최상단에 새 "Health" 섹션이 `winpodx check` 와 동일한 프로브를 실행하고 각각 색깔 있는 상태 배지 + 전체 verdict 으로 렌더링. Refresh Info 클릭 시 갱신.
+- **`winpodx check` 헬스 프로브.** 새 CLI 명령어가 멀티 소스 헬스 점검을 한 번에 실행하고 각 프로브를 `OK` / `WARN` / `FAIL` / `SKIP` 와 측정 시간으로 출력. `--json` 로 머신 판독용 출력. exit code 는 어떤 프로브든 `FAIL` 일 때만 `1`. 프로브:
+  - `pod_running`, `rdp_port`, `agent_health` — bring-up 상태
+  - `guest_exec` — `Write-Output ok` 페이로드를 `/exec` 로 보내 rc=0 + stdout="ok" 검증. host→guest 채널이 실제로 round-trip 하는지 (단순히 `/health` 응답만이 아니라) 증명
+  - `guest_summary` — `/exec` 한 번으로 Windows 버전 / uptime / 현재 사용자 / 활성 세션 수 / C: 여유 공간 가져옴
+  - `oem_version`, `password_age`, `apps_discovered`, `disk_free` — 호스트 측 상태
+- **GUI Info 페이지 Health 카드 자동 갱신.** Info 페이지 최상단의 새 "Health" 섹션이 각 프로브를 색 배지 + 전체 verdict 로 렌더. 페이지가 보이는 동안 30초마다 자동 갱신, 페이지 떠나면 타이머 일시정지 (idle 시 guest poll 안 함).
+- **사이드바 트랜스포트 표시기.** 상단 pod chip 에 글자 점 2개 추가 — `A` (guest agent) 와 `R` (RDP 포트) — 도달 가능하면 녹색, 안 되면 빨강. tooltip 으로 "agent OK (version)" / "host→guest 명령어가 FreeRDP RemoteApp 으로 폴백됨" 표시 — 다음 launch 가 어느 채널로 갈지 한눈에 보임. 기존 15초 pod-status 타이머가 같이 갱신.
 
 ### 수정
 - **discovery 스크립트 경로 한 단계 어긋남.** `_ps_script_path` 가 `.parent` 를 4번 거슬러 `<root>/src/scripts/windows/discover_apps.ps1` 를 만들었는데 어떤 layout 에도 없는 경로. 5번 거슬러 실제 `<root>/scripts/windows/` 로 resolve 되게 수정 — 이제 GUI Refresh 가 pod 정상일 때 "Pod Not Running" dialog 를 띄우지 않음.

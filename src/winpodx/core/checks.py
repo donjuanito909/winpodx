@@ -76,6 +76,8 @@ def probe_rdp_port(cfg: Config) -> Probe:
 
 
 def probe_agent_health(cfg: Config) -> Probe:
+    """GET /health — verifies the agent is bound and answering on 8765."""
+
     def _run() -> tuple[ProbeStatus, str]:
         from winpodx.core.agent import AgentClient, AgentError
 
@@ -89,6 +91,125 @@ def probe_agent_health(cfg: Config) -> Probe:
 
     status, detail, ms = _timed(_run)
     return Probe("agent_health", status, detail, ms)
+
+
+def probe_guest_exec(cfg: Config) -> Probe:
+    """POST /exec round-trip — proves the host→guest command channel works.
+
+    Sends a trivial PowerShell payload (``Write-Output ok``) through
+    ``AgentClient.exec`` and verifies rc==0 and stdout=="ok". A passing
+    /health doesn't tell you the bearer auth, base64 decode, child spawn,
+    stdio capture, and JSON serialization all work — this probe does.
+
+    Skipped when the pod isn't running (no point running it just to fail);
+    fails loudly when /health is fine but /exec isn't (the symptom that
+    the rc:null bug from 2026-04-30 created).
+    """
+
+    def _run() -> tuple[ProbeStatus, str]:
+        from winpodx.core.agent import AgentClient, AgentError
+        from winpodx.core.pod import PodState, pod_status
+
+        # Skip rather than fail when the pod itself is down — keeps the
+        # report readable in the "pod stopped" state where every guest
+        # probe would otherwise red-X.
+        try:
+            if pod_status(cfg).state != PodState.RUNNING:
+                return "skip", "pod not running"
+        except Exception:  # noqa: BLE001
+            return "skip", "pod state unknown"
+
+        client = AgentClient(cfg)
+        try:
+            result = client.exec("Write-Output ok\n", timeout=10.0)
+        except AgentError as e:
+            return "fail", f"exec failed: {e}"
+        if result.rc != 0:
+            return "fail", f"rc={result.rc} stderr={result.stderr.strip()[:80]!r}"
+        out = (result.stdout or "").strip()
+        if out != "ok":
+            return "warn", f"unexpected stdout: {out[:80]!r}"
+        return "ok", "round-trip OK (rc=0, stdout='ok')"
+
+    status, detail, ms = _timed(_run)
+    return Probe("guest_exec", status, detail, ms)
+
+
+def probe_guest_summary(cfg: Config) -> Probe:
+    """Single /exec call that returns a JSON snapshot of guest state.
+
+    Reports Windows version, uptime, current RDP user, active session
+    count, and C: free space in one row. Cheap enough to include in the
+    default check (~150ms typical) and answers the most common
+    "what's going on inside Windows" question without requiring the
+    user to open a remote desktop.
+    """
+
+    def _run() -> tuple[ProbeStatus, str]:
+        import json
+
+        from winpodx.core.agent import AgentClient, AgentError
+        from winpodx.core.pod import PodState, pod_status
+
+        try:
+            if pod_status(cfg).state != PodState.RUNNING:
+                return "skip", "pod not running"
+        except Exception:  # noqa: BLE001
+            return "skip", "pod state unknown"
+
+        # Single PowerShell payload — emit one JSON object so the host
+        # parses it in one shot. Keep the script short; agent.ps1 logs
+        # the payload hash for forensics, and longer scripts inflate
+        # /exec latency.
+        script = (
+            "$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue;"
+            "$cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue;"
+            "$disk = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\""
+            " -ErrorAction SilentlyContinue;"
+            "$sessions = (query session 2>$null | Where-Object { $_ -match 'rdp' }"
+            " | Measure-Object).Count;"
+            "$obj = @{"
+            "  os = if ($os) { $os.Caption.Trim() } else { '?' };"
+            "  build = if ($os) { $os.BuildNumber } else { '?' };"
+            "  uptime_h = if ($os) {"
+            "    [math]::Round((New-TimeSpan -Start $os.LastBootUpTime"
+            " -End (Get-Date)).TotalHours, 1)"
+            "  } else { 0 };"
+            "  user = if ($cs) { $cs.UserName } else { '' };"
+            "  c_free_gb = if ($disk) {"
+            "    [math]::Round($disk.FreeSpace / 1GB, 1)"
+            "  } else { 0 };"
+            "  sessions = [int]$sessions;"
+            "};"
+            "$obj | ConvertTo-Json -Compress"
+        )
+
+        client = AgentClient(cfg)
+        try:
+            result = client.exec(script, timeout=15.0)
+        except AgentError as e:
+            return "fail", f"exec failed: {e}"
+        if result.rc != 0:
+            return "warn", f"rc={result.rc} stderr={result.stderr.strip()[:80]!r}"
+        try:
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError) as e:
+            return "warn", f"non-JSON stdout: {e}"
+
+        os_name = payload.get("os", "?")
+        build = payload.get("build", "?")
+        uptime_h = payload.get("uptime_h", 0)
+        user = payload.get("user") or "(no user)"
+        sessions = payload.get("sessions", 0)
+        c_free = payload.get("c_free_gb", 0)
+        detail = (
+            f"{os_name} build={build} up={uptime_h}h user={user!r} "
+            f"sessions={sessions} C:={c_free}GiB free"
+        )
+        return "ok", detail
+
+    status, detail, ms = _timed(_run)
+    return Probe("guest_summary", status, detail, ms)
 
 
 def probe_oem_version(cfg: Config) -> Probe:
@@ -170,6 +291,8 @@ PROBES: tuple[Callable[[Config], Probe], ...] = (
     probe_pod_running,
     probe_rdp_port,
     probe_agent_health,
+    probe_guest_exec,  # round-trip test — proves /exec works, not just /health
+    probe_guest_summary,  # in-guest snapshot (Windows version / uptime / sessions / disk)
     probe_oem_version,
     probe_password_age,
     probe_apps_discovered,

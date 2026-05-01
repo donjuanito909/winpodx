@@ -229,6 +229,7 @@ class WinpodxWindow(QMainWindow):
 
     # Thread-safe signals
     pod_status_updated = Signal(str, str)
+    transport_status_updated = Signal(bool, bool, str)  # agent_ok, rdp_ok, agent_version
     app_launched = Signal(str)
     app_launch_failed = Signal(str)
     log_signal = Signal(str, str)
@@ -366,6 +367,7 @@ class WinpodxWindow(QMainWindow):
 
     def _setup_signals(self) -> None:
         self.pod_status_updated.connect(self._on_pod_status)
+        self.transport_status_updated.connect(self._on_transport_status)
         self.app_launched.connect(self._on_app_launched)
         self.app_launch_failed.connect(self._on_app_launch_failed)
         self.log_signal.connect(self._log_append)
@@ -464,6 +466,7 @@ class WinpodxWindow(QMainWindow):
         self.pod_dot.setStyleSheet(
             f"background: transparent; color: {C.SUBTEXT0}; font-size: 10px;"
         )
+        self.pod_dot.setToolTip("Pod state")
         chip_l.addWidget(self.pod_dot)
 
         self.pod_label = QLabel("checking")
@@ -471,6 +474,25 @@ class WinpodxWindow(QMainWindow):
             f"background: transparent; color: {C.SUBTEXT0}; font-size: 12px;"
         )
         chip_l.addWidget(self.pod_label)
+
+        # Mini transport indicators \u2014 small colored dots next to the pod
+        # chip showing agent + RDP reachability so the user can see at a
+        # glance whether host\u2192guest commands will succeed (agent dot) or
+        # fall back to FreeRDP RemoteApp (RDP dot). Updated by the same
+        # 15s status_timer that drives pod_dot, plus a quick agent probe.
+        self.agent_dot = QLabel("A")
+        self.agent_dot.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: bold;"
+        )
+        self.agent_dot.setToolTip("Guest agent (HTTP /health) \u2014 probing\u2026")
+        chip_l.addWidget(self.agent_dot)
+
+        self.rdp_dot = QLabel("R")
+        self.rdp_dot.setStyleSheet(
+            f"background: transparent; color: {C.OVERLAY0}; font-size: 10px; font-weight: bold;"
+        )
+        self.rdp_dot.setToolTip("RDP port (3390) \u2014 probing\u2026")
+        chip_l.addWidget(self.rdp_dot)
 
         ctrl_w = QWidget()
         ctrl_w.setStyleSheet(POD_CTRL)
@@ -2101,6 +2123,31 @@ class WinpodxWindow(QMainWindow):
         else:
             self._on_stop_tail()
 
+        # Auto-refresh the Info page Health card when the user is looking
+        # at it. The probes hit /exec which spawns a child PS, so we keep
+        # the cadence at 30s (cheap on a healthy install — ~2s for the
+        # full sweep, dominated by guest_exec + guest_summary). Off-page,
+        # the timer is paused so we don't poll the guest while idle.
+        info_index = 4
+        if index == info_index:
+            self._start_info_auto_refresh()
+        else:
+            self._stop_info_auto_refresh()
+
+    def _start_info_auto_refresh(self) -> None:
+        """Begin polling Info-page probes every 30s; runs immediately once."""
+        if getattr(self, "_info_auto_timer", None) is None:
+            self._info_auto_timer = QTimer(self)
+            self._info_auto_timer.timeout.connect(self._refresh_info)
+        self._info_auto_timer.start(30000)
+        # Kick the first refresh now so the user doesn't sit on stale data.
+        self._refresh_info()
+
+    def _stop_info_auto_refresh(self) -> None:
+        timer = getattr(self, "_info_auto_timer", None)
+        if timer is not None:
+            timer.stop()
+
     # Serializes ensure_ready + Popen spawn so concurrent launches don't race.
     _launch_lock = threading.Lock()
 
@@ -2580,8 +2627,62 @@ class WinpodxWindow(QMainWindow):
                 self.pod_status_updated.emit(s.state.value, s.ip)
             except Exception:
                 self.pod_status_updated.emit("error", "")
+                self.transport_status_updated.emit(False, False, "")
+                return
+
+            # Probe transports in the same worker tick so the chip dots
+            # stay synced with the pod state. Both probes are bounded
+            # (~2s each); together they finish well inside the 15s timer.
+            agent_ok = False
+            agent_version = ""
+            rdp_ok = False
+            try:
+                from winpodx.core.agent import AgentClient, AgentError
+
+                client = AgentClient(cfg)
+                try:
+                    payload = client.health()
+                    agent_ok = True
+                    agent_version = str(payload.get("version", ""))
+                except AgentError:
+                    agent_ok = False
+            except Exception:  # noqa: BLE001 — never break the timer
+                log.debug("agent probe in status_timer failed", exc_info=True)
+            try:
+                from winpodx.core.pod import check_rdp_port
+
+                rdp_ok = check_rdp_port(cfg.rdp.ip, cfg.rdp.port, timeout=1.0)
+            except Exception:  # noqa: BLE001
+                log.debug("rdp probe in status_timer failed", exc_info=True)
+            self.transport_status_updated.emit(agent_ok, rdp_ok, agent_version)
 
         threading.Thread(target=_do, daemon=True).start()
+
+    @Slot(bool, bool, str)
+    def _on_transport_status(self, agent_ok: bool, rdp_ok: bool, agent_version: str) -> None:
+        """Paint the agent + RDP mini dots on the sidebar pod chip."""
+        green = C.GREEN
+        red = C.RED
+
+        self.agent_dot.setStyleSheet(
+            f"background: transparent; color: {green if agent_ok else red}; "
+            f"font-size: 10px; font-weight: bold;"
+        )
+        if agent_ok:
+            tip = f"Guest agent OK ({agent_version})" if agent_version else "Guest agent OK"
+        else:
+            tip = "Guest agent unreachable — host→guest commands fall back to FreeRDP RemoteApp"
+        self.agent_dot.setToolTip(tip)
+
+        self.rdp_dot.setStyleSheet(
+            f"background: transparent; color: {green if rdp_ok else red}; "
+            f"font-size: 10px; font-weight: bold;"
+        )
+        self.rdp_dot.setToolTip(
+            "RDP port 3390 reachable"
+            if rdp_ok
+            else "RDP port 3390 unreachable — apps cannot launch"
+        )
 
     @Slot(str, str)
     def _on_pod_status(self, state: str, ip: str) -> None:

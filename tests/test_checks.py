@@ -114,6 +114,51 @@ def test_probe_password_age_warn_when_overdue():
     assert "overdue" in out.detail
 
 
+def test_probe_guest_exec_skip_when_pod_not_running(monkeypatch):
+    """When the pod isn't running, the round-trip probe must skip rather than
+    fail — every guest probe would red-X otherwise and drown out the actual
+    "pod is down" signal."""
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.STOPPED))
+    out = checks.probe_guest_exec(_FakeCfg())
+    assert out.status == "skip"
+    assert "pod" in out.detail.lower()
+
+
+def test_probe_guest_summary_skip_when_pod_not_running(monkeypatch):
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.STOPPED))
+    out = checks.probe_guest_summary(_FakeCfg())
+    assert out.status == "skip"
+
+
+def test_probe_guest_exec_fail_when_agent_unreachable(monkeypatch):
+    """When the pod IS running but agent is down, the probe must fail with
+    a useful detail — proves the round-trip channel is broken even though
+    the container is up."""
+    import winpodx.core.pod as pod_mod
+    from winpodx.core.agent import AgentUnavailableError
+    from winpodx.core.pod import PodState, PodStatus
+
+    monkeypatch.setattr(pod_mod, "pod_status", lambda _cfg: PodStatus(state=PodState.RUNNING))
+
+    class _FakeClient:
+        def __init__(self, _cfg) -> None:
+            pass
+
+        def exec(self, *_a, **_k):
+            raise AgentUnavailableError("connection refused")
+
+    monkeypatch.setattr("winpodx.core.agent.AgentClient", _FakeClient)
+    out = checks.probe_guest_exec(_FakeCfg())
+    assert out.status == "fail"
+    assert "connection refused" in out.detail
+
+
 def test_probe_apps_discovered_warn_on_missing_dir(tmp_path, monkeypatch):
     monkeypatch.setattr("winpodx.core.discovery.discovered_apps_dir", lambda: tmp_path / "missing")
     out = checks.probe_apps_discovered(_FakeCfg())
