@@ -365,6 +365,7 @@ def _probe_password_sync(non_interactive: bool) -> None:
     try:
         from winpodx.core.config import Config
         from winpodx.core.pod import PodState, pod_status
+        from winpodx.core.transport import TransportError, dispatch
         from winpodx.core.windows_exec import WindowsExecError, run_in_windows
     except ImportError as e:
         print(f"  (skipping password-sync probe: {e})")
@@ -395,17 +396,41 @@ def _probe_password_sync(non_interactive: bool) -> None:
     if not wait_for_windows_responsive(cfg, timeout=180):
         print("  (probe deferred — guest still booting; will retry on next ensure_ready)")
         return
-    try:
+
+    # Prefer the v0.3.0 agent transport — its /exec runs the script via
+    # CreateNoWindow=$true so no PowerShell window flashes for the user.
+    # FreeRDP RemoteApp stays as fallback, but the user-visible flash on
+    # GUI startup that 0.3.0 RTM users reported on 2026-05-01 was this
+    # probe firing through the legacy channel during pending.resume().
+    def _probe_once() -> None:
+        try:
+            transport = dispatch(cfg)
+        except Exception:  # noqa: BLE001 — degrade silently to FreeRDP
+            transport = None
+        if transport is not None and transport.name == "agent":
+            try:
+                transport.exec(
+                    "Write-Output 'sync-check'",
+                    timeout=60,
+                    description="probe-password-sync",
+                )
+            except TransportError as exc:
+                raise WindowsExecError(str(exc)) from exc
+            return
+        # FreeRDP handshake + RemoteApp launch + tsclient redirection
+        # negotiation can take 30+ seconds on first contact after a cold
+        # pod start. 20s was too aggressive and surfaced as
+        # "(probe inconclusive: ... timed out after 20s)".
         run_in_windows(
             cfg,
             "Write-Output 'sync-check'",
             description="probe-password-sync",
-            # FreeRDP handshake + RemoteApp launch + tsclient redirection
-            # negotiation can take 30+ seconds on first contact after a
-            # cold pod start. 20s was too aggressive and surfaced as
-            # "(probe inconclusive: ... timed out after 20s)".
             timeout=60,
         )
+
+    try:
+        _probe_once()
+        return
     except WindowsExecError as e:
         msg = str(e).lower()
         # v0.2.0.4: tighten error classification. Transport-level
