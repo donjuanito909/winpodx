@@ -13,6 +13,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 Major release — modular core, HTTP guest agent, and a comprehensive health-check surface. Replaces the FreeRDP RemoteApp pipeline as the default host→guest command channel.
 
+### Background
+
+v0.2.2 / v0.2.2.1 were an earlier attempt at these features that landed broken on real installs (PS-window storms, "Another user is signed in" dialogs, install timeouts, RST from `/exec` because compose was missing the `8765` port mapping). main was rolled back to v0.2.1 on 2026-04-29 and the agent + transport feature redesigned from scratch with explicit anti-goals (see `docs/AGENT_V2_DESIGN.md`). v0.3.0 is that redesigned implementation; the `0.2.2.x` tags exist on the timeline but should not be used.
+
 ### Added
 - **HTTP guest agent (rev4).** `agent.ps1` runs inside Windows on `127.0.0.1:8765`, bound via `+:8765` so QEMU's user-mode NAT can reach it. Bearer-authed `/exec` (base64-encoded PowerShell payloads) replaces FreeRDP RemoteApp as the default host→guest command channel; `/health` stays unauthenticated for the readiness probe. Child PS spawned via `[Diagnostics.Process]` + `CreateNoWindow=$true` + async `ReadToEndAsync` — no PS-window flashes, no pipe-buffer deadlocks. Token delivered via the OEM bind mount (mode `0600` on host, gitignored).
 - **Transport ABC v1** (`core/transport/{base,agent,freerdp,dispatch}`). `dispatch()` prefers the agent and falls back to FreeRDP when `/health` doesn't answer. Password rotation explicitly **never** routes through Transport (rule #6 in `docs/TRANSPORT_ABC.md`) — rotation owns its own credentials and calls `run_in_windows` directly to avoid a bootstrap loop on stale-password recovery.
@@ -23,6 +27,7 @@ Major release — modular core, HTTP guest agent, and a comprehensive health-che
   - `oem_version`, `password_age`, `apps_discovered`, `disk_free` — host-side state
 - **GUI Info page Health card with auto-refresh.** The Info page gains a top "Health" section that renders each probe with a coloured status badge plus the overall verdict. While the page is visible the card auto-refreshes every 30 s; off-page the timer is paused so the guest isn't polled while idle.
 - **Sidebar transport indicators.** The pod chip in the top bar now shows two extra letter dots — `A` (guest agent) and `R` (RDP port) — that turn green when reachable and red when not. Hover surfaces "agent OK (version)" / "host→guest commands fall back to FreeRDP RemoteApp" tooltips so the user sees at a glance which channel will service the next launch. Updated by the existing 15 s pod-status timer.
+- **`install.sh` ref selection.** `--main` installs from `origin/main` (development), `--ref TAG` installs from a specific git ref / release tag. Default with no flag uses the latest GitHub Release. Added together with the RTM-only release gate so rapid-iteration tags between RTM points don't trigger AUR / OBS / Debian publishes that overwrite working installs.
 
 ### Fixed
 - **Discovery script path off by one.** `_ps_script_path` walked four `.parent`s and resolved to `<root>/src/scripts/windows/discover_apps.ps1`, which never exists in any layout. Walked five now so the resolution lands on the actual `<root>/scripts/windows/` directory; clicking GUI Refresh stops popping the "Pod Not Running" dialog when the pod is fine.

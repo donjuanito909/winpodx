@@ -39,11 +39,11 @@ curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh |
 ---
 
 > ### Status: Beta
-> winpodx is in active development (v0.2.0.x). The install path, FreeRDP RemoteApp integration, Windows-side runtime applies, and discovery flow have all been hardened across the v0.1.9 → v0.2.0.x line, but you should still expect rough edges — especially on first install (Windows VM first-boot can take 5–10 minutes; see `winpodx pod wait-ready --logs` for live progress). Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
+> winpodx is in active development (v0.3.0). v0.3.0 ships a redesigned host→guest pipeline — bearer-authed HTTP agent on `127.0.0.1:8765` is now the default command channel, with FreeRDP RemoteApp kept as fallback. App launches no longer flash a PowerShell window. New `winpodx check` CLI + GUI Health card surface live pod / RDP / agent / round-trip / disk state. First install still takes ~5-10 minutes (Windows VM ISO download + Sysprep + OEM apply); `winpodx pod wait-ready --logs` shows live progress. Please file issues at <https://github.com/kernalix7/winpodx/issues> if something breaks.
 
 **No full-screen RDP.** Each Windows app becomes its own Linux window with its real icon — pinnable, alt-tabbable, file-associated. Drop into a full Windows desktop only when you actually want one (`winpodx app run desktop`).
 
-winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp. No manual VM setup, no ISO downloads, no registry editing. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
+winpodx runs a Windows container (via [dockur/windows](https://github.com/dockur/windows)) in the background and presents Windows apps as native Linux applications through FreeRDP RemoteApp, while a bearer-authed HTTP agent inside the guest handles the host→guest command channel without flashing a PowerShell window. No manual VM setup, no ISO downloads, no registry editing. **Near-zero external Python dependencies** (stdlib only on Python 3.11+; one pure-Python `tomli` fallback on 3.9/3.10).
 
 ## Why winpodx?
 
@@ -213,6 +213,7 @@ Status legend: `OK` (green) / `WARN` (yellow — informational, exit 0) / `FAIL`
 | GUI (optional) | PySide6 (Qt6) |
 | Config | TOML (stdlib `tomllib` on 3.11+ / `tomli` on 3.9/3.10; built-in writer) |
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
+| Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64-encoded `/exec` payloads) |
 | Container | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |

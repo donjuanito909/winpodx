@@ -35,11 +35,11 @@
 ---
 
 > ### 상태: 베타
-> winpodx는 활발히 개발 중입니다 (v0.2.0.x). 설치 경로, FreeRDP RemoteApp 통합, Windows-side runtime apply, discovery 흐름이 v0.1.9 → v0.2.0.x 동안 많이 개선됐지만, 여전히 거친 부분이 남아있을 수 있습니다 — 특히 첫 설치 시 (Windows VM 첫 부팅에 5~10분 소요; 진행 상황은 `winpodx pod wait-ready --logs` 로 확인). 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
+> winpodx는 활발히 개발 중입니다 (v0.3.0). v0.3.0 은 host→guest 파이프라인을 새로 설계 — bearer-authed HTTP agent (`127.0.0.1:8765`) 가 기본 명령 채널, FreeRDP RemoteApp 은 폴백. 앱 launch 마다 PowerShell 창 깜빡이지 않음. 새 `winpodx check` CLI + GUI Health 카드가 pod / RDP / agent / round-trip / disk 상태 실시간 표시. 첫 설치는 여전히 ~5-10분 소요 (Windows VM ISO 다운로드 + Sysprep + OEM apply); 진행 상황은 `winpodx pod wait-ready --logs` 로 확인. 문제 발생 시 <https://github.com/kernalix7/winpodx/issues> 에 이슈 등록해주세요.
 
 **Full-screen RDP 아님.** Windows 앱이 각각 네이티브 Linux 윈도 — pin 가능, alt-tab 됨, 파일 연결 동작. 진짜 Windows 데스크톱 필요할 때만 `winpodx app run desktop`.
 
-winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
+winpodx는 백그라운드에서 Windows 컨테이너([dockur/windows](https://github.com/dockur/windows))를 실행하고, FreeRDP RemoteApp으로 Windows 앱을 네이티브 Linux 앱처럼 표시합니다. 게스트 안의 bearer-authed HTTP agent 가 host→guest 명령 채널을 처리해서 PowerShell 창이 깜빡이지 않음. VM 수동 설정 불필요, ISO 다운로드 불필요, 레지스트리 편집 불필요. **외부 Python 의존성 거의 없음** (Python 3.11+ 는 표준 라이브러리만; 3.9/3.10 은 순수 파이썬 `tomli` 폴백 1개).
 
 ## 왜 winpodx인가?
 
@@ -188,6 +188,7 @@ Wine 은 속도와 GPU (DXVK/VKD3D 가 깔끔히 번역해줄 때) 에서 이깁
 | GUI (선택) | PySide6 (Qt6) |
 | 설정 | TOML (3.11+ 는 표준 라이브러리 `tomllib` / 3.9/3.10 은 `tomli`; 내장 writer) |
 | RDP | FreeRDP 3+ (xfreerdp, RemoteApp/RAIL) |
+| Guest agent | PowerShell `HttpListener` on `127.0.0.1:8765` (bearer auth, base64-encoded `/exec` payloads) |
 | 컨테이너 | Podman / Docker ([dockur/windows](https://github.com/dockur/windows)) |
 | VM | libvirt / KVM |
 | CI | GitHub Actions (lint + test on 3.9-3.13 + pip-audit) |

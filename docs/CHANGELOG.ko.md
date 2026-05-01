@@ -13,6 +13,10 @@
 
 메이저 릴리스 — 모듈형 core 재구조, HTTP guest agent, 통합 헬스체크 surface. FreeRDP RemoteApp 파이프라인을 기본 host→guest 채널에서 대체.
 
+### 배경
+
+v0.2.2 / v0.2.2.1 가 같은 기능들의 첫 시도였지만 실설치에서 깨짐 (PS창 폭주, "Another user is signed in" 다이얼로그, install timeout, compose 의 `8765` 포트 매핑 누락으로 `/exec` RST). 2026-04-29 main 을 v0.2.1 로 롤백하고 명시적 anti-goal 와 함께 agent + transport 처음부터 재설계 (`docs/AGENT_V2_DESIGN.md` 참고). v0.3.0 이 그 재설계 구현; `0.2.2.x` 태그는 timeline 에 남아있지만 사용하지 말 것.
+
 ### 추가
 - **HTTP guest agent (rev4).** `agent.ps1` 가 Windows 안 `127.0.0.1:8765` 에서 동작, `+:8765` 로 바인드해서 QEMU user-mode NAT 통과. Bearer-authed `/exec` (base64 인코딩 PowerShell 페이로드) 가 FreeRDP RemoteApp 을 기본 host→guest 채널에서 대체; `/health` 는 readiness probe 위해 unauthenticated 유지. child PS 는 `[Diagnostics.Process]` + `CreateNoWindow=$true` + 비동기 `ReadToEndAsync` 로 spawn — PS창 깜빡임 없음, pipe buffer deadlock 없음. 토큰은 OEM bind mount 로 전달 (호스트 mode `0600`, gitignored).
 - **Transport ABC v1** (`core/transport/{base,agent,freerdp,dispatch}`). `dispatch()` 가 agent 우선, `/health` 응답 없으면 FreeRDP 폴백. Password rotation 은 명시적으로 Transport 통하지 **않음** (`docs/TRANSPORT_ABC.md` 규칙 #6) — rotation 은 자체 credential 소유 + `run_in_windows` 직접 호출 (stale-password 복구 시 bootstrap loop 회피).
@@ -23,6 +27,7 @@
   - `oem_version`, `password_age`, `apps_discovered`, `disk_free` — 호스트 측 상태
 - **GUI Info 페이지 Health 카드 자동 갱신.** Info 페이지 최상단의 새 "Health" 섹션이 각 프로브를 색 배지 + 전체 verdict 로 렌더. 페이지가 보이는 동안 30초마다 자동 갱신, 페이지 떠나면 타이머 일시정지 (idle 시 guest poll 안 함).
 - **사이드바 트랜스포트 표시기.** 상단 pod chip 에 글자 점 2개 추가 — `A` (guest agent) 와 `R` (RDP 포트) — 도달 가능하면 녹색, 안 되면 빨강. tooltip 으로 "agent OK (version)" / "host→guest 명령어가 FreeRDP RemoteApp 으로 폴백됨" 표시 — 다음 launch 가 어느 채널로 갈지 한눈에 보임. 기존 15초 pod-status 타이머가 같이 갱신.
+- **`install.sh` ref 선택.** `--main` 은 `origin/main` 에서 설치 (개발용), `--ref TAG` 는 특정 git ref / 릴리스 태그에서 설치. 플래그 없으면 최신 GitHub Release 사용. RTM-only 릴리스 게이트와 같이 추가 — RTM 사이의 rapid iteration 태그가 AUR / OBS / Debian publish 를 트리거해서 동작하는 install 을 덮어쓰지 않게 함.
 
 ### 수정
 - **discovery 스크립트 경로 한 단계 어긋남.** `_ps_script_path` 가 `.parent` 를 4번 거슬러 `<root>/src/scripts/windows/discover_apps.ps1` 를 만들었는데 어떤 layout 에도 없는 경로. 5번 거슬러 실제 `<root>/scripts/windows/` 로 resolve 되게 수정 — 이제 GUI Refresh 가 pod 정상일 때 "Pod Not Running" dialog 를 띄우지 않음.

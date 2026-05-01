@@ -63,8 +63,16 @@ jobs:
           else
             tag="${{ inputs.tag }}"
           fi
+          # Strip the RTM gate suffix when computing the package version —
+          # RPM's Version: field forbids '-' (it's the Version/Release
+          # delimiter), so 'v0.3.0-RTM1' would land as the illegal
+          # 'Version: 0.3.0-RTM1'. The tag itself is preserved for the
+          # release upload + asset naming; only the on-disk Version is
+          # stripped to a plain '0.3.0'.
+          version="${tag#v}"
+          version="${version%%-RTM*}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install RPM build deps
         shell: bash

@@ -36,8 +36,13 @@ jobs:
           else
             tag="${{ inputs.tag }}"
           fi
+          # OBS feeds the version into both deb and rpm specs; rpm forbids
+          # '-' in Version: (Version/Release delimiter). Strip the RTM
+          # gate suffix so `0.3.0-RTM1` lands as `0.3.0`.
+          version="${tag#v}"
+          version="${version%%-RTM*}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install curl + jq
         run: sudo apt-get update && sudo apt-get install -y curl jq

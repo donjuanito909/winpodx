@@ -44,8 +44,13 @@ jobs:
           else
             tag="${{ inputs.tag }}"
           fi
+          # AUR pkgver disallows '-' (reserved for the pkgrel delimiter),
+          # so strip the RTM gate suffix before stamping PKGBUILD. Tag
+          # name itself is preserved for the source URL.
+          version="${tag#v}"
+          version="${version%%-RTM*}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Render PKGBUILD (stamp version + sha256)
         if: steps.check.outputs.skip == 'false'
