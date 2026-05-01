@@ -487,11 +487,7 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
     try:
         from winpodx.core.config import Config
         from winpodx.core.pod import PodState, pod_status
-        from winpodx.core.provisioner import (
-            _apply_max_sessions,
-            _apply_oem_runtime_fixes,
-            _apply_rdp_timeouts,
-        )
+        from winpodx.core.provisioner import apply_windows_runtime_fixes
     except ImportError as e:
         print(f"  warning: cannot load provisioner helpers ({e}); skipping.")
         return
@@ -545,17 +541,16 @@ def _apply_runtime_fixes_to_existing_guest(non_interactive: bool) -> None:
         )
         return
 
-    # Pod is running — three idempotent applies.
-    failures: list[str] = []
-    for name, fn in (
-        ("max_sessions", _apply_max_sessions),
-        ("rdp_timeouts", _apply_rdp_timeouts),
-        ("oem_runtime_fixes", _apply_oem_runtime_fixes),
-    ):
-        try:
-            fn(cfg)
-        except Exception as e:  # noqa: BLE001
-            failures.append(f"{name}: {e}")
+    # Delegate to the canonical apply chain in provisioner so install.sh's
+    # post-upgrade migrate path picks up new steps (e.g. vbs_launchers added
+    # in v0.3.0 post-RTM) automatically — duplicating the list here drifted
+    # silently when winpodx pod apply-fixes gained vbs_launchers but migrate
+    # didn't, causing C:\Users\Public\winpodx\launchers\ to never be staged
+    # on `curl install.sh --main` upgrades.
+    results = apply_windows_runtime_fixes(cfg)
+    failures: list[str] = [
+        f"{name}: {status}" for name, status in results.items() if status != "ok"
+    ]
 
     if failures:
         print("  warning: some applies failed (others may have succeeded):")
