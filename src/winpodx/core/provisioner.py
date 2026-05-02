@@ -357,27 +357,38 @@ def _apply_oem_runtime_fixes(cfg: Config) -> None:
 
 
 def _apply_vbs_launchers(cfg: Config) -> None:
-    """Push hidden-launcher.vbs / launch_uwp.vbs / launch_uwp.ps1 + update
-    HKCU\\Run so existing pods stop flashing PowerShell windows on agent
-    autostart and UWP launches.
+    """Push hidden-launcher.vbs / launch_uwp.{vbs,ps1} / agent-respawn.ps1
+    + update HKCU\\Run + auto-respawn the running agent under the new
+    wrapper so existing pods stop flashing PowerShell windows on agent
+    autostart and UWP launches — without needing a user logout or pod
+    restart.
 
-    Migration path for users on v0.3.0-RTM1 (OEM v12). Fresh installs from
-    OEM v13+ already have the files staged via install.bat; this step is
-    a no-op then. Targets ``C:\\Users\\Public\\winpodx\\launchers\\``
-    because Public is universally writable for Authenticated Users (the
-    agent runs as User and can't write to ``C:\\OEM\\``, which is
-    SYSTEM-owned).
+    Migration path for users on v0.3.0-RTM1 / OEM v12 / v13. Fresh installs
+    from OEM v14+ already have the files staged via install.bat; this step
+    is then a re-write + re-respawn no-op. Targets
+    ``C:\\Users\\Public\\winpodx\\launchers\\`` because Public is
+    universally writable for Authenticated Users (the agent runs as User
+    and can't write to ``C:\\OEM\\``, which is SYSTEM-owned).
 
-    Idempotent — re-running just rewrites the files and the registry
-    value. The autostart change takes effect on the next user session
-    logon (or pod restart); UWP launch path is picked up immediately by
-    the host's next ``rdp.build_rdp_command`` call.
+    The respawn fires as a detached wscript invocation at the end of the
+    payload. ``agent-respawn.ps1`` waits ~3s (giving this /exec response
+    time to land), kills the old agent process, waits for port 8765 to
+    free, then starts a fresh agent under wscript+hidden-launcher.vbs.
+
+    Idempotent — re-running rewrites files, refreshes the registry
+    value, and triggers another respawn cycle. UWP launch path is picked
+    up immediately by the host's next ``rdp.build_rdp_command`` call.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
     oem_root = bundle_dir() / "config" / "oem"
-    files = ("hidden-launcher.vbs", "launch_uwp.vbs", "launch_uwp.ps1")
+    files = (
+        "hidden-launcher.vbs",
+        "launch_uwp.vbs",
+        "launch_uwp.ps1",
+        "agent-respawn.ps1",
+    )
     sources: dict[str, str] = {}
     for fname in files:
         path = oem_root / fname
@@ -417,7 +428,27 @@ def _apply_vbs_launchers(cfg: Config) -> None:
             "$runKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'",
             "if (-not (Test-Path $runKey)) { [void](New-Item -Path $runKey -Force) }",
             f"Set-ItemProperty -Path $runKey -Name 'WinpodxAgent' -Value '{reg_value}'",
-            "Write-Output 'vbs_launchers applied'",
+        ]
+    )
+    # Auto-respawn the running agent under the new wscript wrapper so the
+    # autostart-flash fix takes effect without requiring a user logout or
+    # `winpodx pod restart`. The respawn script waits ~3s before killing
+    # the old agent — long enough for THIS /exec response to land at the
+    # host. Spawned hidden via wscript+hidden-launcher.vbs.
+    respawn_args_ps = (
+        "@(",
+        f"        '{target_dir}\\hidden-launcher.vbs',",
+        "        'powershell.exe',",
+        "        '-NoProfile',",
+        "        '-ExecutionPolicy', 'Bypass',",
+        f"        '-File', '{target_dir}\\agent-respawn.ps1'",
+        "    )",
+    )
+    lines.extend(
+        [
+            "$respawnArgs = " + "\n    ".join(respawn_args_ps),
+            "Start-Process wscript.exe -ArgumentList $respawnArgs | Out-Null",
+            "Write-Output 'vbs_launchers applied + agent respawn queued'",
         ]
     )
     payload = "\n".join(lines) + "\n"
