@@ -232,6 +232,14 @@ def _apply_multi_session(cfg: Config) -> None:
         return
 
     candidates = [
+        # install.bat extracts rdprrap into RDPRRAP_DIR=C:\winpodx\rdprrap;
+        # this is where rdprrap-conf.exe actually lives on every fresh
+        # install. Earlier candidates kept the OEM/Program Files paths in
+        # case an older OEM build dropped it elsewhere, but the C:\winpodx\
+        # path is the one that matches install.bat — without it the apply
+        # always logged "rdprrap-conf not found" and the zombie-session
+        # dialog kept reappearing because multi-session never enabled.
+        r"C:\winpodx\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap-conf.exe",
         r"C:\Program Files\rdprrap\rdprrap-conf.exe",

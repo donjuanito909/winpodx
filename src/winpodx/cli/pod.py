@@ -277,6 +277,11 @@ def _multi_session(action: str) -> None:
     # rdprrap-conf paths to try, in order. Different OEM versions /
     # extraction layouts have placed it differently.
     candidates = [
+        # install.bat extracts rdprrap into C:\winpodx\rdprrap — the actual
+        # location where rdprrap-conf.exe lives on every install. The
+        # OEM / Program Files candidates stay as legacy fallbacks for
+        # users on older OEM builds that placed it differently.
+        r"C:\winpodx\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap-conf.exe",
         r"C:\Program Files\rdprrap\rdprrap-conf.exe",
