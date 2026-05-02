@@ -214,31 +214,37 @@ def wait_for_windows_responsive(cfg: Config, timeout: int = 90) -> bool:
 
 
 def _apply_multi_session(cfg: Config) -> None:
-    """v0.2.0.9: enable rdprrap multi-session by default.
+    """Report multi-session status — never run rdprrap-conf at runtime.
 
-    Without this, the 2nd FreeRDP RemoteApp launch against the same
-    Windows account triggers a "Select a session to reconnect to"
-    dialog (Windows refuses concurrent sessions per user by default)
-    instead of giving the user an independent app window. rdprrap
-    patches termsrv.dll so each connection becomes its own session.
+    rdprrap activates by patching termsrv.dll. Patching the loaded
+    binary requires restarting Windows' Terminal Service, which kills
+    every active RDP session — including the agent's own host session.
+    On 2026-05-02 kernalix7's pod hung when this step ran rdprrap-conf
+    --enable mid-apply: the patcher killed the user session, the agent
+    died with it, /exec timed out, and recovery required a full pod
+    restart. The patch only takes effect on the next TermService start
+    anyway, so calling it at runtime trades immediate breakage for a
+    benefit that won't land until the next reboot regardless.
 
-    Idempotent — rdprrap-conf --enable is a no-op when already enabled.
-    Tolerates rdprrap-conf missing (e.g. older OEM builds) by treating
-    the apply as a successful skip rather than a hard failure, since
-    the rest of the self-heal block is more important than this UX
-    nicety.
+    The OEM-time path (install.bat's rdprrap-installer.exe call) IS
+    safe because no user session exists yet — TermService restart at
+    that point is a no-op. Users wanting to retroactively enable
+    multi-session on an existing pod should run
+    ``winpodx pod multi-session enable`` (which carries the same
+    "this will kick you out of every running app" semantics, but is
+    explicit user intent rather than a silent self-heal step).
+
+    This function therefore just reports whether rdprrap is staged on
+    the guest. The status surfaces in ``apply_windows_runtime_fixes``'s
+    output so the user sees whether OEM-time activation succeeded.
     """
     if cfg.pod.backend not in ("podman", "docker"):
         return
 
     candidates = [
-        # install.bat extracts rdprrap into RDPRRAP_DIR=C:\winpodx\rdprrap;
-        # this is where rdprrap-conf.exe actually lives on every fresh
-        # install. Earlier candidates kept the OEM/Program Files paths in
-        # case an older OEM build dropped it elsewhere, but the C:\winpodx\
-        # path is the one that matches install.bat — without it the apply
-        # always logged "rdprrap-conf not found" and the zombie-session
-        # dialog kept reappearing because multi-session never enabled.
+        # install.bat extracts rdprrap into RDPRRAP_DIR=C:\winpodx\rdprrap.
+        # Older OEM builds may have placed it under C:\OEM\ or
+        # C:\Program Files\rdprrap\.
         r"C:\winpodx\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap\rdprrap-conf.exe",
         r"C:\OEM\rdprrap-conf.exe",
@@ -249,13 +255,21 @@ def _apply_multi_session(cfg: Config) -> None:
         payload_lines.append(
             f"if (-not $rdprrap -and (Test-Path '{path}')) {{ $rdprrap = '{path}' }}"
         )
+    not_staged_msg = (
+        "rdprrap-conf not staged on guest "
+        "(OEM-time install may have failed; recreate the container or re-run install.bat)"
+    )
     payload_lines += [
         "if (-not $rdprrap) {",
-        "    Write-Output 'rdprrap-conf not found; multi-session left disabled'",
-        "    exit 0",  # treat missing rdprrap as best-effort skip, not failure
+        f"    Write-Output '{not_staged_msg}'",
+        "    exit 0",
         "}",
-        "& $rdprrap --enable | Out-Null",
-        "Write-Output 'multi-session enabled'",
+        # Existence-only probe — don't even invoke `--status` from runtime;
+        # rdprrap-conf can synchronously touch termsrv state and on a
+        # half-patched binary that has been observed to hang the agent.
+        # The mere presence of the binary is what `apply_windows_runtime_fixes`
+        # callers want to know about anyway.
+        'Write-Output ("rdprrap-conf staged at: $rdprrap")',
         "exit 0",
     ]
     payload = "\n".join(payload_lines) + "\n"
@@ -263,14 +277,12 @@ def _apply_multi_session(cfg: Config) -> None:
     from winpodx.core.windows_exec import WindowsExecError
 
     try:
-        result = _apply_via_transport(cfg, payload, description="apply-multi-session")
+        result = _apply_via_transport(cfg, payload, description="probe-multi-session")
     except WindowsExecError as e:
         log.warning("multi_session: channel failure: %s", e)
         raise
     if result.rc != 0:
         log.warning("multi_session: rc=%d stderr=%s", result.rc, result.stderr.strip())
-        # Non-fatal — log and continue. rdprrap not being patched
-        # doesn't break winpodx, just means each app share a session.
         return
     log.info("multi_session: %s", result.stdout.strip())
 
