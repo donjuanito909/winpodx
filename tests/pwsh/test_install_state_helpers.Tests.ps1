@@ -339,15 +339,13 @@ Describe 'Write-WinpodxFailure produces JSON valid against install_failure.schem
             -Value 'abcd1234-1111-2222-3333-444455556666' -NoNewline
     }
 
-    It 'Happy path: writes redacted JSON that validates against the schema' {
-        # Pre-populate install.log with a couple of lines so _Wpx_TailLog
-        # returns a non-empty array (works around a known
-        # ConvertTo-Json-collapses-empty-array quirk in pwsh).
-        @(
-            '{"ts":"2026-05-08T09:17:51Z","level":"INFO","step":"multi_session_active","event":"start"}',
-            '{"ts":"2026-05-08T09:17:55Z","level":"ERROR","step":"multi_session_active","event":"failed"}'
-        ) | Set-Content -LiteralPath $script:WpxLogPath
-
+    It 'Happy path with no install.log: writes redacted JSON that validates against the schema' {
+        # No install.log seeded — exercises the missing-log path.
+        # _Wpx_TailLog returns a plain list; Write-WinpodxFailure wraps
+        # it once with `$tail = @(_Wpx_TailLog)` at the JSON boundary so
+        # an empty result serialises to `[]`, not `null`. The schema's
+        # "type: array" rule on last_log_lines catches the regression
+        # if either layer goes back to a bare `@()` -> $null collapse.
         Write-WinpodxFailure `
             -Step 'multi_session_active' `
             -Phase 2 `
@@ -376,8 +374,33 @@ Describe 'Write-WinpodxFailure produces JSON valid against install_failure.schem
         # environment + last_log_lines are auto-filled by the helper.
         $parsed.PSObject.Properties.Name | Should -Contain 'environment'
         $parsed.PSObject.Properties.Name | Should -Contain 'last_log_lines'
-        # The two lines we seeded above must be present, redacted (the
-        # seeded lines have no secrets, so they pass through verbatim).
+        # last_log_lines must serialise as a JSON array (not null) even
+        # when install.log is missing. Test-Json above already enforced
+        # the schema's "type: array" rule; this is belt-and-braces, and
+        # documents the array-context contract for future readers.
+        ,$parsed.last_log_lines | Should -BeOfType ([System.Array])
+    }
+
+    It 'Happy path with seeded install.log: includes redacted tail in last_log_lines' {
+        @(
+            '{"ts":"2026-05-08T09:17:51Z","level":"INFO","step":"multi_session_active","event":"start"}',
+            '{"ts":"2026-05-08T09:17:55Z","level":"ERROR","step":"multi_session_active","event":"failed"}'
+        ) | Set-Content -LiteralPath $script:WpxLogPath
+
+        Write-WinpodxFailure `
+            -Step 'multi_session_active' `
+            -Phase 2 `
+            -Attempt 3 `
+            -MaxAttempts 3 `
+            -ExitCode 1 `
+            -ErrorClass 'rdprrap_activate_failed' `
+            -ErrorSummary 'plain summary'
+
+        $written = Get-Content -Raw -LiteralPath $script:WpxFailurePath
+        $schema  = Get-Content -Raw -LiteralPath $script:SchemaPath
+        Test-Json -Json $written -Schema $schema | Should -BeTrue
+
+        $parsed = $written | ConvertFrom-Json
         $parsed.last_log_lines.Count | Should -BeGreaterOrEqual 2
     }
 
