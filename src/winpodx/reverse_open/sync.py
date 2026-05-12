@@ -61,6 +61,7 @@ _GUEST_APPS_JSON = _GUEST_BASE + r"\apps.json"
 _GUEST_ICONS_DIR = _GUEST_BASE + r"\icons"
 _GUEST_BIN_DIR = _GUEST_BASE + r"\bin"
 _GUEST_SHIM_EXE = _GUEST_BIN_DIR + r"\winpodx-reverse-open-shim.exe"
+_GUEST_RCEDIT_EXE = _GUEST_BIN_DIR + r"\rcedit.exe"
 _GUEST_REGISTER_PS1 = _GUEST_BASE + r"\register-apps.ps1"
 _GUEST_UNREGISTER_PS1 = _GUEST_BASE + r"\unregister-apps.ps1"
 
@@ -81,6 +82,20 @@ _HOST_SHIM_PATH: tuple[str, ...] = (
     "shim",
     "bin",
     "winpodx-reverse-open-shim.exe",
+)
+# rcedit (electron/rcedit, MIT) — vendored alongside the shim. Used by
+# register-apps.ps1 to embed the per-slug icon directly into the
+# per-slug .exe's PE resource section. Required because Explorer's
+# "Open with…" chooser picks its entry icon from the EXE's embedded
+# resource, not from registry surfaces (Applications\<exe>\DefaultIcon
+# nor <ProgID>\DefaultIcon work reliably on Win10/Win11). Hard-link
+# inode-sharing is sacrificed to make this work — each per-slug .exe
+# is now an independent copy with its own embedded icon, so the on-
+# disk footprint scales with app count (~500 KB × N).
+_HOST_RCEDIT_PATH: tuple[str, ...] = (
+    "shim",
+    "bin",
+    "rcedit.exe",
 )
 
 # Agent /exec default is 60s; bumped for the sync payload because the
@@ -187,11 +202,33 @@ def _read_host_shim_exe() -> bytes:
         raise SyncError(f"cannot read shim binary {path}: {exc}") from exc
 
 
+def _read_host_rcedit_exe() -> bytes:
+    """Read the vendored rcedit.exe binary from the host bundle.
+
+    ``rcedit.exe`` is committed under
+    ``config/oem/reverse-open/shim/bin/`` alongside the shim. Raises
+    :class:`SyncError` if missing — like the shim, the install is
+    broken; pretending to sync would land per-slug .exes without
+    embedded icons and the chooser fix would be invisible.
+    """
+    path = bundle_dir().joinpath(*_HOST_BUNDLE_SUBDIR, *_HOST_RCEDIT_PATH)
+    if not path.is_file():
+        raise SyncError(
+            f"reverse-open rcedit binary missing at {path}; "
+            "this is normally committed alongside the shim"
+        )
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise SyncError(f"cannot read rcedit binary {path}: {exc}") from exc
+
+
 def _build_sync_script(
     apps_json_text: str,
     icons_b64: dict[str, str],
     host_scripts: dict[str, str],
     shim_b64: str,
+    rcedit_b64: str,
 ) -> str:
     """Render the PowerShell snippet that runs on the guest via /exec.
 
@@ -230,6 +267,7 @@ def _build_sync_script(
         f"$register = '{_GUEST_REGISTER_PS1}'\n"
         f"$unregister = '{_GUEST_UNREGISTER_PS1}'\n"
         f"$shimExe = '{_GUEST_SHIM_EXE}'\n"
+        f"$rcEditExe = '{_GUEST_RCEDIT_EXE}'\n"
         "\n"
         "foreach ($d in @($base, $iconsDir, $binDir)) {\n"
         "    if (-not (Test-Path -LiteralPath $d)) "
@@ -255,6 +293,7 @@ def _build_sync_script(
         f"Write-TextAtomic $register '{register_b64}'\n"
         f"Write-TextAtomic $unregister '{unregister_b64}'\n"
         f"Write-BinaryAtomic $shimExe '{shim_b64}'\n"
+        f"Write-BinaryAtomic $rcEditExe '{rcedit_b64}'\n"
         "\n"
         "# Write each ICO.\n"
         "$icons = @(\n"
@@ -268,7 +307,8 @@ def _build_sync_script(
         "\n"
         "# Run the now-staged register-apps.ps1 from the public dir.\n"
         "& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $register "
-        "-AppsJson $appsJson -IconsDir $iconsDir -BinDir $binDir -ShimExe $shimExe\n"
+        "-AppsJson $appsJson -IconsDir $iconsDir -BinDir $binDir "
+        "-ShimExe $shimExe -RcEditExe $rcEditExe\n"
         "exit $LASTEXITCODE\n"
     )
     return script
@@ -290,11 +330,14 @@ def sync_to_guest(cfg: Config, stage_dir: Path) -> SyncResult:
     host_scripts = _read_host_scripts()
     shim_bytes = _read_host_shim_exe()
     shim_b64 = base64.b64encode(shim_bytes).decode("ascii")
+    rcedit_bytes = _read_host_rcedit_exe()
+    rcedit_b64 = base64.b64encode(rcedit_bytes).decode("ascii")
     script = _build_sync_script(
         stage_dir.joinpath("apps.json").read_text(encoding="utf-8"),
         icons_b64,
         host_scripts,
         shim_b64,
+        rcedit_b64,
     )
     client = AgentClient(cfg)
     try:
