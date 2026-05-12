@@ -109,11 +109,12 @@ _FAKE_HOST_SCRIPTS = {
     "unregister": "# unregister stub",
 }
 _FAKE_SHIM_B64 = base64.b64encode(b"\x4d\x5aFAKE_PE_BYTES").decode("ascii")
+_FAKE_RCEDIT_B64 = base64.b64encode(b"\x4d\x5aFAKE_RCEDIT_PE_BYTES").decode("ascii")
 
 
 def test_build_sync_script_embeds_apps_b64() -> None:
     apps_text = '{"version":1,"apps":[]}'
-    script = _build_sync_script(apps_text, {}, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64)
+    script = _build_sync_script(apps_text, {}, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64, _FAKE_RCEDIT_B64)
     expected = base64.b64encode(apps_text.encode("utf-8")).decode("ascii")
     assert expected in script
     assert "FromBase64String" in script
@@ -121,10 +122,12 @@ def test_build_sync_script_embeds_apps_b64() -> None:
 
 
 def test_build_sync_script_invokes_register_with_shim_exe_flag() -> None:
-    """Regression guard: register-apps.ps1 takes -ShimExe (the new
-    Rust .exe param) and -BinDir for the per-app hard-link target."""
-    script = _build_sync_script("{}", {}, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64)
+    """Regression guard: register-apps.ps1 takes -ShimExe (the source
+    .exe copied per-slug) and -RcEditExe (used to embed per-slug
+    icons into each copy) and -BinDir for the per-app .exe target."""
+    script = _build_sync_script("{}", {}, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64, _FAKE_RCEDIT_B64)
     assert "-ShimExe $shimExe" in script
+    assert "-RcEditExe $rcEditExe" in script
     assert "-BinDir $binDir" in script
     # No leftover from the prior .ps1-shim era.
     assert "-ShimPath" not in script
@@ -133,9 +136,15 @@ def test_build_sync_script_invokes_register_with_shim_exe_flag() -> None:
 def test_build_sync_script_embeds_shim_via_binary_writer() -> None:
     """The Rust .exe must go through Write-BinaryAtomic — UTF-8
     text-decoding a PE binary would corrupt it."""
-    script = _build_sync_script("{}", {}, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64)
+    script = _build_sync_script("{}", {}, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64, _FAKE_RCEDIT_B64)
     assert "Write-BinaryAtomic" in script
     assert f"Write-BinaryAtomic $shimExe '{_FAKE_SHIM_B64}'" in script
+
+
+def test_build_sync_script_embeds_rcedit_via_binary_writer() -> None:
+    """rcedit.exe is a PE too — same binary-writer path as the shim."""
+    script = _build_sync_script("{}", {}, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64, _FAKE_RCEDIT_B64)
+    assert f"Write-BinaryAtomic $rcEditExe '{_FAKE_RCEDIT_B64}'" in script
 
 
 def test_build_sync_script_embeds_icon_entries() -> None:
@@ -143,7 +152,7 @@ def test_build_sync_script_embeds_icon_entries() -> None:
         "kate": base64.b64encode(b"PNG").decode("ascii"),
         "gimp": base64.b64encode(b"ICO").decode("ascii"),
     }
-    script = _build_sync_script("{}", icons, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64)
+    script = _build_sync_script("{}", icons, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64, _FAKE_RCEDIT_B64)
     # Both slugs and both base64 blobs appear verbatim in the snippet.
     assert "'kate'" in script
     assert "'gimp'" in script
@@ -158,7 +167,7 @@ def test_build_sync_script_sorts_icon_entries() -> None:
         "zebra": base64.b64encode(b"Z").decode("ascii"),
         "alpha": base64.b64encode(b"A").decode("ascii"),
     }
-    script = _build_sync_script("{}", icons, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64)
+    script = _build_sync_script("{}", icons, _FAKE_HOST_SCRIPTS, _FAKE_SHIM_B64, _FAKE_RCEDIT_B64)
     alpha_pos = script.index("'alpha'")
     zebra_pos = script.index("'zebra'")
     assert alpha_pos < zebra_pos
@@ -172,7 +181,7 @@ def test_build_sync_script_embeds_both_ps_scripts() -> None:
         "register": "# REGISTER_MARKER",
         "unregister": "# UNREGISTER_MARKER",
     }
-    rendered = _build_sync_script("{}", {}, scripts, _FAKE_SHIM_B64)
+    rendered = _build_sync_script("{}", {}, scripts, _FAKE_SHIM_B64, _FAKE_RCEDIT_B64)
     for body in scripts.values():
         expected = base64.b64encode(body.encode("utf-8")).decode("ascii")
         assert expected in rendered
@@ -191,6 +200,10 @@ def test_sync_to_guest_happy_path(tmp_path: Path) -> None:
             "winpodx.reverse_open.sync._read_host_shim_exe",
             return_value=b"\x4d\x5aPE_FAKE",
         ),
+        patch(
+            "winpodx.reverse_open.sync._read_host_rcedit_exe",
+            return_value=b"\x4d\x5aRCEDIT_FAKE",
+        ),
     ):
         agent_cls.return_value.exec.return_value = fake_result
         result = sync_to_guest(cfg, stage)
@@ -208,6 +221,10 @@ def test_sync_to_guest_propagates_register_failure(tmp_path: Path) -> None:
         patch(
             "winpodx.reverse_open.sync._read_host_shim_exe",
             return_value=b"\x4d\x5aPE_FAKE",
+        ),
+        patch(
+            "winpodx.reverse_open.sync._read_host_rcedit_exe",
+            return_value=b"\x4d\x5aRCEDIT_FAKE",
         ),
     ):
         agent_cls.return_value.exec.return_value = fake_result

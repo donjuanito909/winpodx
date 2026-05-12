@@ -204,20 +204,22 @@ if (Test-Path -LiteralPath $BinDir) {
             }
         }
     }
-    # Also remove the master shim binary (separate from the
-    # per-app hard links, named winpodx-reverse-open-shim.exe).
-    $shimPath = Join-Path $BinDir 'winpodx-reverse-open-shim.exe'
-    if (Test-Path -LiteralPath $shimPath) {
+    # Also remove the master shim binary and the vendored rcedit.
+    # The shim used to be the hard-link source; it's now just the
+    # copy source. rcedit was added with the icon-embed flow.
+    foreach ($extra in @('winpodx-reverse-open-shim.exe', 'rcedit.exe')) {
+        $p = Join-Path $BinDir $extra
+        if (-not (Test-Path -LiteralPath $p)) { continue }
         if ($DryRun) {
-            Write-LogLine 'INFO' "[dry-run] would delete $shimPath"
+            Write-LogLine 'INFO' "[dry-run] would delete $p"
             $removedFiles++
-        } else {
-            try {
-                Remove-Item -LiteralPath $shimPath -Force -ErrorAction Stop
-                $removedFiles++
-            } catch {
-                Write-LogLine 'WARN' "could not delete ${shimPath}: $($_.Exception.Message)"
-            }
+            continue
+        }
+        try {
+            Remove-Item -LiteralPath $p -Force -ErrorAction Stop
+            $removedFiles++
+        } catch {
+            Write-LogLine 'WARN' "could not delete ${p}: $($_.Exception.Message)"
         }
     }
 }

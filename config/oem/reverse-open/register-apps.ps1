@@ -28,8 +28,21 @@
 #    300 KB × 95 = 28 MB. The shim reads its own filename at runtime
 #    (`std::env::current_exe`) to figure out which slug it represents.
 #
-# We register under THREE surfaces, because Windows' "Open with…"
-# chooser is a minefield and no single one is sufficient on its own:
+# Icon surface — embedded in the per-slug EXE (rcedit)
+# -----------------------------------------------------
+# Earlier revisions tried `Applications\<exe>\DefaultIcon` and a
+# per-slug ProgID with `\DefaultIcon` — neither is honoured by the
+# Win10/Win11 "Open with…" chooser when rendering entries registered
+# under `Applications\<exe>`. Explorer reads the chooser entry icon
+# from the EXE's embedded PE resource, period.
+#
+# The fix: each per-slug `winpodx-<slug>.exe` is now an INDEPENDENT
+# COPY of the shim (NOT a hard link) whose icon resource has been
+# overwritten with `<slug>.ico` via vendored `rcedit.exe`. PR #165's
+# inode-sharing optimisation is sacrificed (~500 KB × N apps on disk)
+# in exchange for icons that actually show up.
+#
+# Registration surfaces stay the same:
 #
 #   a. `HKCU\Software\Classes\Applications\<exe>\` — FriendlyAppName +
 #      SupportedTypes + shell\open\command. Required for the entry to
@@ -40,17 +53,11 @@
 #      a value). Drives the inline short "Open with" menu visibility
 #      (Win10 + Win11). #166's fix.
 #
-#   c. `HKCU\Software\Classes\winpodx-<slug>` — per-slug **ProgID**
-#      with `DefaultIcon` + `shell\open\command`, linked to each
-#      extension via `<ext>\OpenWithProgids\winpodx-<slug>` value.
-#      This is the **canonical surface for the chooser's per-entry
-#      ICON**: `Applications\<exe>\DefaultIcon` is widely ignored by
-#      Explorer's chooser, and the hard-linked shim has no embedded
-#      icon resource, so without the ProgID surface every entry
-#      falls back to the generic .exe glyph. Same hard-linked .exe
-#      per slug — the EXE-dedup concern in the header above applies
-#      to `OpenWithList` (where Windows collapses by EXE path), NOT
-#      to `OpenWithProgids` (where the ProgID name is the dedup key).
+#   c. `HKCU\Software\Classes\winpodx-<slug>` — per-slug ProgID with
+#      shell\open\command, linked to each extension via
+#      `<ext>\OpenWithProgids\winpodx-<slug>`. No `DefaultIcon` —
+#      Explorer ignores it for the chooser anyway, and the embedded
+#      EXE icon already covers every chooser path.
 # =====================================================================
 
 [CmdletBinding()]
@@ -63,6 +70,10 @@ param(
     # subkey's DefaultIcon value). Each per-slug entry is a hard
     # link to this single binary.
     [string]$ShimExe = 'C:\Users\Public\winpodx\reverse-open\bin\winpodx-reverse-open-shim.exe',
+    # rcedit (electron/rcedit, MIT) — patches a per-slug `.exe` copy
+    # to embed the matching `.ico` as its icon resource. Without this
+    # the Open With chooser falls back to the generic .exe glyph.
+    [string]$RcEditExe = 'C:\Users\Public\winpodx\reverse-open\bin\rcedit.exe',
     [string]$StartMenuDir = $(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Linux Apps'),
     [switch]$DryRun
 )
@@ -164,30 +175,47 @@ if (-not (Test-Path -LiteralPath $ShimExe)) {
     exit 3
 }
 
+if (-not (Test-Path -LiteralPath $RcEditExe)) {
+    Write-LogLine 'ERROR' "rcedit binary missing at $RcEditExe — required to embed per-slug icons into the per-slug .exe copies"
+    exit 3
+}
+
 if (-not (Test-Path -LiteralPath $BinDir)) {
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 }
 
-# Helper: create a hard link from $LinkPath to $TargetPath. Falls back
-# to a copy if the link command fails (e.g. cross-volume, or NTFS
-# permissions). PowerShell's New-Item supports `-ItemType HardLink`
-# since Win10, but the registry-friendly fallback is plain copy.
-function New-HardLinkOrCopy([string]$LinkPath, [string]$TargetPath) {
-    if (Test-Path -LiteralPath $LinkPath) {
-        Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+# Helper: stage a per-slug .exe by copying the source shim and then
+# embedding the per-slug icon into its PE resource section. Returns
+# $true on success, $false on failure (logged).
+#
+# The copy step replaces the earlier hard-link approach. Hard links
+# share an inode, which means an icon embedded into one name would
+# also appear on every other name pointing at the same inode — not
+# what we want. We need N independent .exe files with N different
+# embedded icons, so each must be a real copy.
+function New-PerSlugExe([string]$ExePath, [string]$IconPath) {
+    if (Test-Path -LiteralPath $ExePath) {
+        Remove-Item -LiteralPath $ExePath -Force -ErrorAction SilentlyContinue
     }
     try {
-        New-Item -ItemType HardLink -Path $LinkPath -Target $TargetPath -Force -ErrorAction Stop | Out-Null
-        return $true
+        Copy-Item -LiteralPath $ShimExe -Destination $ExePath -Force -ErrorAction Stop
     } catch {
+        Write-LogLine 'WARN' "could not copy shim to ${ExePath}: $($_.Exception.Message)"
+        return $false
+    }
+    if (-not [string]::IsNullOrEmpty($IconPath) -and (Test-Path -LiteralPath $IconPath)) {
         try {
-            Copy-Item -LiteralPath $TargetPath -Destination $LinkPath -Force -ErrorAction Stop
-            return $false
+            $rcOutput = & $RcEditExe $ExePath --set-icon $IconPath 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-LogLine 'WARN' "rcedit failed for ${ExePath} (rc=$LASTEXITCODE): $rcOutput"
+                return $false
+            }
         } catch {
-            Write-LogLine 'WARN' "could not create $LinkPath (hardlink + copy both failed): $($_.Exception.Message)"
+            Write-LogLine 'WARN' "rcedit invocation failed for ${ExePath}: $($_.Exception.Message)"
             return $false
         }
     }
+    return $true
 }
 
 $registered = 0
@@ -229,42 +257,33 @@ foreach ($app in $manifest.apps) {
     $friendly = "Open with $name (Linux)"
 
     if ($DryRun) {
-        Write-LogLine 'INFO' "[dry-run] would hard-link $exePath -> $ShimExe + register $friendly for $($mimes -join ',')"
+        Write-LogLine 'INFO' "[dry-run] would copy $ShimExe -> $exePath + embed $icoPath + register $friendly for $($mimes -join ',')"
         $registered++
         continue
     }
 
-    # Hard-link the generic shim to its per-slug name. Same inode,
-    # zero additional disk usage. The shim reads its own filename
-    # at runtime to figure out which slug to embed in the request.
-    [void](New-HardLinkOrCopy -LinkPath $exePath -TargetPath $ShimExe)
+    # Stage the per-slug .exe as an independent copy with the per-slug
+    # icon embedded into its PE resource section. Without the embed,
+    # the Open With chooser entry renders with the generic .exe icon.
+    [void](New-PerSlugExe -ExePath $exePath -IconPath $icoPath)
+    if (-not (Test-Path -LiteralPath $icoPath)) {
+        Write-LogLine 'WARN' "icon missing for $slug at $icoPath — chooser entry will use the unmodified shim icon"
+    }
 
     $appRoot = "HKCU:\Software\Classes\Applications\$exeName"
     Set-NamedValue $appRoot 'FriendlyAppName' $friendly
-    if (Test-Path -LiteralPath $icoPath) {
-        # Kept for upgrade/back-compat — older revisions read it. The
-        # canonical icon surface for the chooser is the per-slug
-        # ProgID's DefaultIcon below; this Applications-key value is
-        # belt-and-suspenders and harmless.
-        Set-DefaultValue (Join-Path $appRoot 'DefaultIcon') "$icoPath,0"
-    } else {
-        Write-LogLine 'WARN' "icon missing for $slug at $icoPath — chooser will show generic .exe icon"
-    }
     Set-DefaultValue (Join-Path $appRoot 'shell\open\command') "`"$exePath`" `"%1`""
 
-    # --- per-slug ProgID (canonical icon surface) ------------------------
-    # Without this, Explorer's chooser uses the .exe's embedded icon
-    # resource — which our hard-linked Rust shim doesn't have — and
-    # falls back to the generic .exe glyph. The ProgID's DefaultIcon
-    # is the surface Explorer reliably honours when an entry is
-    # surfaced via `<ext>\OpenWithProgids\winpodx-<slug>` (written in
-    # the per-extension loop below).
+    # --- per-slug ProgID (long-dialog surface) ---------------------------
+    # The ProgID anchors the `<ext>\OpenWithProgids\winpodx-<slug>`
+    # value (written in the per-extension loop below) so the entry
+    # surfaces in both the short Open With menu and the long "Choose
+    # another app" dialog. DefaultIcon intentionally omitted — Explorer
+    # ignores it for chooser entries, and the embedded EXE icon
+    # already covers every chooser path.
     $progIdRoot = "HKCU:\Software\Classes\winpodx-$slug"
     Set-DefaultValue $progIdRoot $friendly
     Set-NamedValue $progIdRoot 'FriendlyTypeName' $friendly
-    if (Test-Path -LiteralPath $icoPath) {
-        Set-DefaultValue (Join-Path $progIdRoot 'DefaultIcon') "$icoPath,0"
-    }
     Set-DefaultValue (Join-Path $progIdRoot 'shell\open\command') "`"$exePath`" `"%1`""
 
     # SupportedTypes lists every extension this app handles. The
@@ -346,11 +365,12 @@ if (-not $DryRun) {
         $icoPath = Join-Path $IconsDir "$slug.ico"
         $exePath = Join-Path $BinDir "winpodx-$slug.exe"
 
-        # If the per-app .exe link doesn't exist (because the app
-        # was skipped at the registration pass for having no Linux
-        # defaults), hard-link it now so the shortcut has a target.
+        # If the per-app .exe doesn't exist (because the app was
+        # skipped at the registration pass for having no Linux
+        # defaults), stage it now so the shortcut has a target —
+        # icon embedded if available, plain copy otherwise.
         if (-not (Test-Path -LiteralPath $exePath)) {
-            [void](New-HardLinkOrCopy -LinkPath $exePath -TargetPath $ShimExe)
+            [void](New-PerSlugExe -ExePath $exePath -IconPath $icoPath)
         }
 
         # Sanitise the name for use as a filename — strip illegal
