@@ -1,0 +1,51 @@
+# Comparison
+
+**English** | [한국어](COMPARISON.ko.md)
+
+How winpodx compares to other tools for running Windows applications on Linux.
+
+## Why winpodx?
+
+Existing tools for running Windows apps on Linux all have trade-offs:
+
+| | winapps | LinOffice | winboat | winpodx |
+|---|---|---|---|---|
+| Core tech | Any RDP-capable Windows host (cloud / physical / container) + FreeRDP | dockur + FreeRDP | dockur + FreeRDP | dockur (Podman) + FreeRDP + HTTP guest agent |
+| Setup | Manual (shell + config + RDP testing) | One-liner script | One-click GUI installer | **Zero-config** (auto on first launch) |
+| Interface | CLI only | CLI only | Electron GUI | **Qt6 GUI + CLI + tray** |
+| App scope | Any Windows app | Office only | Any Windows app | Any Windows app |
+| Language | Shell (86%) | Shell + Python | TypeScript / Vue / Go | **Python (100%)** |
+| Runtime deps | curl, dialog, git, netcat | Podman, FreeRDP | Electron, Docker/Podman, FreeRDP | **Python 3.9+, FreeRDP, Podman** |
+| Auto suspend / resume | No | No | Not documented | **Yes (idle timeout)** |
+| Password rotation | No | No | Not documented | **Yes (7-day, atomic)** |
+| HiDPI auto-detect | No | No | Not documented | **GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb** |
+| Sound default | No | No | Yes (FreeRDP) | Yes (FreeRDP) |
+| Printer redirection default | No | No | Not documented | Yes (FreeRDP) |
+| USB drive auto-mapping | No | No | Smartcard passthrough | **Drive subfolders → drive letters via FileSystemWatcher** |
+| Discovery (auto-scan installed apps) | No | No | Yes | **Yes (Registry + Start Menu + UWP + choco/scoop)** |
+| Multi-session RDP | No | No | Not documented | **Yes (bundled rdprrap, up to 10)** |
+| Reverse file open (guest → host xdg-open) | No | No | No | **Yes (Linux apps in Windows "Open with…" menu)** |
+| Offline / air-gapped install | No | No | No | **Yes (`--source` + `--image-tar`)** |
+| License | MIT | AGPL-3.0 | MIT | MIT |
+
+> winboat is the closest peer in scope and was an inspiration. We focus on a different mix — stdlib-leaning Python + Qt6 instead of Electron, deeper auto-config (auto suspend, 7-day password rotation, multi-DE HiDPI), reverse-open (the only project where Linux apps appear in the Windows "Open with…" menu by default), and an explicit air-gapped install path. Both projects build on dockur/windows; that ecosystem is bigger than any one app.
+
+## winpodx vs Wine
+
+**winpodx is not a Wine replacement.** Wine translates Windows API calls; winpodx runs the actual Windows OS in a container. The two solve different problems and many users have both installed.
+
+| When you need... | Use |
+|---|---|
+| Older Win32 apps, indie games, lightweight utilities | **Wine / Bottles / Lutris** |
+| GPU-accelerated games / 3D apps (DirectX 9 – 12) | **Wine** — DXVK / VKD3D give near-native frame rates. winpodx has no GPU passthrough by default; QEMU CPU rendering is much slower. (GPU passthrough via VFIO is a manual bring-your-own setup — not yet packaged.) |
+| Microsoft 365 with full Outlook + Teams + OneDrive integration | **winpodx** |
+| Adobe Creative Suite (Photoshop, Illustrator, Premiere, Lightroom) | winpodx — but heavy GPU effects will be CPU-bound (see GPU row above) |
+| Anti-cheat games (Valorant, EAC, BattlEye) | **TBD** — anti-cheats vary by VM-detection policy (Vanguard needs TPM 2.0 + no hypervisor, EAC mostly blocks VMs, VAC is lenient). Test before committing. |
+| DRM-heavy software / hardware dongle apps | **winpodx** |
+| Apps that ship kernel-mode drivers (some VPNs, security suites) | **winpodx** |
+| Banking / tax / government tools with regional certificates | **winpodx** |
+| Visual Studio, WinUI 3 / WinRT, .NET features Wine hasn't caught up to | **winpodx** |
+| IE-only legacy enterprise web apps | **winpodx** |
+| Anything where "mostly works" isn't acceptable | **winpodx** |
+
+Wine wins on speed and on GPU when DXVK/VKD3D translate cleanly. winpodx wins on **100% Windows feature parity** for everything else — every app runs on a real Windows kernel, rendered into your Linux desktop as a native window via FreeRDP RemoteApp.

@@ -1,0 +1,151 @@
+# Features
+
+**English** | [한국어](FEATURES.ko.md)
+
+The full feature set: peripherals & sharing, multi-session RDP, app profiles, and reverse-open (Linux apps in the Windows "Open with…" menu).
+
+## Reverse-open (Linux apps in Windows "Open with…")
+
+**New in v0.5.0.** Right-click any file inside the Windows guest and your Linux-side handler appears in the "Open with…" menu — Kate for `.txt`, gwenview for `.png`, Firefox for `.html`, and so on. Picking one round-trips the file open back to the host's `xdg-open` so it lands in the Linux app you actually configured.
+
+How it works:
+
+```
+Windows Explorer right-click  ─┐
+                               │  per-slug winpodx-<slug>.exe
+                               │  (Rust shim, icon embedded via rcedit)
+                               ▼
+   atomic JSON write to \\tsclient\home\.local\share\winpodx\reverse-open\incoming\<uuid>.json
+                               │
+                               ▼
+   host listener daemon picks it up, safe_open_unc validates the path
+                               │
+                               ▼
+   subprocess: <app.exec_argv> with the real host file path
+```
+
+The feature is **on by default** (`cfg.reverse_open.enabled = true`). Each Linux app the user has set as a Linux default handler — via `xdg-mime default` or their DE's "Default Applications" settings — is registered on the Windows side with the matching extensions. Discovery walks `$XDG_DATA_HOME/applications` + `$XDG_DATA_DIRS` plus every `mimeapps.list` in the freedesktop search path.
+
+Manage via the CLI:
+
+```bash
+winpodx host-open status        # listener + manifest state
+winpodx host-open list          # apps that would be pushed
+winpodx host-open refresh       # rescan + push to guest
+winpodx host-open add <slug>    # allowlist
+winpodx host-open remove <slug> # remove (or --deny)
+winpodx host-open disable       # turn the whole feature off
+```
+
+Or via the GUI Settings page → reverse-open panel (same controls).
+
+Per-slug icons render in both the short Open With menu and the long "Choose another app" dialog because each `winpodx-<slug>.exe` is an independent copy of the Rust shim with the matching `.ico` embedded into its PE resource section (via vendored `rcedit.exe`, electron/rcedit v2.0.0, MIT). The chooser icon trade-off: the per-slug `.exe` copies cost ~500 KB × N apps on disk (no hard-link inode sharing) because that's the only chooser-icon path Win10/Win11 reliably honour.
+
+## Seamless app windows
+
+- RemoteApp (RAIL) renders each app as a native Linux window — no full desktop
+- Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
+- File associations: double-click `.docx` in your Linux file manager → Word opens
+- Multi-session RDP: bundled rdprrap auto-enables up to 10 independent sessions
+- RAIL prerequisites (`fDisabledAllowList=1` + `fInheritInitialProgram=1` + `MaxInstanceCount=10`) set automatically during unattended install
+
+## Zero-config launch
+
+- First app click auto-provisions everything: config, container, desktop entries
+- Auto-discovery on first boot scans the running Windows guest and registers every installed app (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) with the real binary's icon
+- Manual rescan any time via `winpodx app refresh` or the GUI Refresh button
+- Interactive setup wizard for advanced configuration
+
+## Peripherals & Sharing
+
+| Feature | How it works | Default |
+|---------|-------------|---------|
+| **Clipboard** | Bidirectional copy-paste via RDP (`+clipboard`) | Enabled |
+| **Sound** | Audio streaming via ALSA (`/sound:sys:alsa`) | Enabled |
+| **Printer** | Linux printers shared to Windows (`/printer`) | Enabled |
+| **Home directory** | Shared as `\\tsclient\home` (`+home-drive`) | Enabled |
+| **USB drives** | Media folder shared as `\\tsclient\media` (`/drive:media`); USB drives plugged in after session start are accessible as subfolders | Enabled |
+| **USB device passthrough** | Native USB redirection (`/usb:auto`) — requires FreeRDP urbdrc plugin | **Opt-in** (add to `extra_flags`) |
+| **USB drive mapping** | Windows-side script auto-maps USB subfolders to drive letters (E:, F:, ...) via FileSystemWatcher | Enabled |
+| **Reverse file open** | Linux apps appear in the Windows guest's right-click "Open with…" menu; selecting one round-trips the file open to host `xdg-open` | Enabled |
+
+### USB Drive Flow
+
+```
+Plug in USB on Linux
+    │
+    ▼
+Linux mounts to /run/media/$USER/USBNAME
+    │
+    ▼
+FreeRDP shares as \\tsclient\media\USBNAME
+    │
+    ▼
+media_monitor.ps1 detects → net use E: \\tsclient\media\USBNAME
+    │
+    ▼
+Windows Explorer shows E: drive
+```
+
+**GPU acceleration:** not yet supported. dockur/windows runs under QEMU/KVM with software graphics — DirectX-heavy games and 3D apps will be CPU-bound. GPU passthrough via VFIO is feasible but not packaged. (See [COMPARISON.md](COMPARISON.md) → winpodx vs Wine — Wine + DXVK is the right tool when you need GPU.)
+
+## Automation & Security
+
+- Auto suspend / resume: container pauses when idle, resumes on next launch
+- Password auto-rotation: 20-char cryptographic password, 7-day cycle with rollback
+- Smart DPI scaling: auto-detects from GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb
+- Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
+- Windows build pinned to 11 25H2 (`TargetReleaseVersionInfo=25H2`, 365-day feature-update defer)
+- Windows debloat: disable telemetry, ads, Cortana, search indexing, services (DiagTrack / dmwappushservice / WSearch / SysMain)
+- High-performance power plan + hibernation off + tzutil UTC + Cloudflare DNS
+- Time sync: force Windows clock resync after host sleep/wake
+- FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
+
+## App Profiles
+
+App profiles are **metadata only**: they describe where a Windows app lives so winpodx can launch it through FreeRDP RemoteApp. The actual Windows application must be installed inside the Windows container.
+
+### Auto-discovery (default)
+
+Starting from v0.1.9 winpodx ships **no curated profile list**. The first time the Windows pod boots, the provisioner runs `winpodx app refresh` and that scans the running guest:
+
+- Registry `App Paths` (`HKLM` + `HKCU`)
+- Start Menu `.lnk` recursion (depth-capped)
+- UWP / MSIX packages via `Get-AppxPackage` + `AppxManifest.xml`
+- Chocolatey + Scoop shims
+
+For each result it extracts the icon directly from the binary (or the package's logo asset for UWP) and writes the entry to `~/.local/share/winpodx/discovered/<slug>/`. Re-run any time:
+
+```bash
+winpodx app refresh        # CLI
+# or click "Refresh Apps" on the GUI Apps page
+```
+
+### Adding a custom app profile manually
+
+User-authored profiles live under `~/.local/share/winpodx/apps/` and override anything discovery finds with the same `name`:
+
+```bash
+mkdir -p ~/.local/share/winpodx/apps/myapp
+cat > ~/.local/share/winpodx/apps/myapp/app.toml << 'EOF'
+name = "myapp"
+full_name = "My Application"
+executable = "C:\\Program Files\\MyApp\\myapp.exe"
+categories = ["Utility"]
+mime_types = []
+EOF
+
+winpodx app install myapp   # Register in desktop menu
+```
+
+## Multi-Session RDP
+
+Stock Windows Desktop editions limit RDP to one session per user; a second app would otherwise reconnect and steal the first session. winpodx bundles [rdprrap](https://github.com/kernalix7/rdprrap) — a Rust reimplementation of RDPWrap — inside the package itself and installs it automatically during the Windows unattended install, so each RemoteApp window gets its own independent session.
+
+**RAIL prerequisites.** RemoteApp itself requires three registry settings that winpodx applies during unattended setup: `fDisabledAllowList=1` (enables RemoteApp publishing), `fInheritInitialProgram=1` (required for `/app:program:...` to launch the target executable instead of a shell), and `MaxInstanceCount=10` paired with `fSingleSessionPerUser=0` (lifts the single-session cap up to 10 concurrent RemoteApp windows). These are set regardless of whether rdprrap installs successfully — rdprrap is what makes the sessions *independent*, but the registry keys are what make RemoteApp work at all. After rdprrap install `TermService` is cycled so the wrapper DLL activates without a reboot.
+
+**Authentication channel.** NLA is disabled (`UserAuthentication=0`) so the FreeRDP command line can authenticate unattended from under `podman unshare --rootless-netns`, but `SecurityLayer=2` keeps the RDP channel itself encrypted with TLS (so `/sec:tls /cert:ignore` against `127.0.0.1` is the full authenticated + encrypted path — no cleartext on the wire even though NLA is off).
+
+**Works fully offline.** The rdprrap zip ships inside winpodx's data directory (`config/oem/`) and is staged into `C:\OEM\` during the guest's first boot. sha256 is verified against a pin file before extraction. No network access is required at install time.
+
+Install is one-shot: the patch is applied during dockur's unattended setup phase. If anything in that step fails (hash mismatch, extraction, installer error), winpodx logs a warning and the guest stays in single-session mode — app launch never blocks on this step. A guest-side management channel (enable/disable/status after install) is planned for a later release.
