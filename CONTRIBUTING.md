@@ -86,6 +86,43 @@ You wrote the patch — the human author of record is you. AI tooling doesn't ge
 
 Human co-authors (e.g., a colleague who pair-programmed with you on the change) are fine and welcome — those should use real human identities + emails.
 
+## Writing release notes
+
+Each version section in `CHANGELOG.md` (and `docs/CHANGELOG.ko.md`) starts with `### Highlights` — a one-sentence headline followed by 3–6 scannable bullets. This is what users see at the top of the GitHub release page: `release.yml` extracts the version's section verbatim, so the first thing in the section is the first thing in the release body.
+
+The detailed `### Added` / `### Changed` / `### Fixed` bullets follow underneath. They're for archeology and exhaustive tracking, not first-read.
+
+Skeleton:
+
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
+
+### Highlights
+
+**One-sentence headline.** Optional 1-2 sentence elaboration if needed.
+
+- Most important user-visible change (one line, scannable)
+- Second most important change
+- (3-6 bullets max; no prose blocks)
+
+### Added
+- (detailed bullets)
+
+### Changed
+- (detailed bullets)
+
+### Fixed
+- (detailed bullets)
+```
+
+When cutting a release, also push the `REL-vX.Y.Z` marker tag — this is what fires `release.yml` (which builds the `wheel` + `sdist`, extracts the CHANGELOG section, and updates the GitHub release body). Without the REL- marker, the version tag (`vX.Y.Z`) triggers only the four packaging workflows (`obs-publish.yml`, `rhel-publish.yml`, `debs-publish.yml`, `aur-publish.yml`) but no `wheel` / `sdist` and no auto-extracted release body.
+
+```bash
+git tag vX.Y.Z <commit>
+git tag REL-vX.Y.Z vX.Y.Z^{}    # dereference to commit to avoid a nested-tag warning
+git push origin vX.Y.Z REL-vX.Y.Z
+```
+
 ## Security
 
 If you discover a security vulnerability, please follow the process described in [SECURITY.md](SECURITY.md). **Do NOT open a public issue.**

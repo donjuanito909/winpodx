@@ -9,11 +9,39 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+<!--
+Template for each new version section — copy this stanza when cutting a release.
+Keep `### Highlights` at the very top: it is the first thing users see on the
+GitHub release page because `release.yml`'s awk extract takes the whole section
+verbatim.
+
+### Highlights
+
+**One-sentence headline.** Optional 1-2 sentence elaboration if needed.
+
+- Most important user-visible change (one line, scannable)
+- Second most important change
+- (3-6 bullets max, no prose blocks)
+
+### Added
+### Changed
+### Fixed
+-->
+
 ## [0.5.0] - 2026-05-13
 
 Reverse-open (#48) ships end-to-end and is the headline feature of this release. Linux apps now appear in the Windows guest's right-click "Open with…" menu by default — no opt-in flag, no Settings toggle required — with correct per-app icons in both the short menu and the long "Choose another app" dialog. Phase 2 series complete (a / b / c / d), plus the full fix-forward stack: per-app `.cmd` wrappers, Rust `.exe` shim, short-menu visibility, Firefox handoff, uninstall `--purge` scope, multi-resolution ICOs, Desktop folder shortcut + Quick Access pin, and the embedded-EXE-icon chooser fix.
 
 The chooser icon problem deserves a callout: Win10/Win11 Explorer reads chooser entry icons from the .exe's embedded PE resource, not from `Applications\<exe>\DefaultIcon` nor from a per-slug ProgID's `\DefaultIcon`. PR #171 ships the only path that actually works — embed the per-slug `.ico` directly into each per-slug `.exe` via vendored rcedit (electron/rcedit v2.0.0, MIT). PR #165's hard-link inode-sharing optimisation is intentionally dropped (~500 KB × N apps on disk) since there is no chooser-icon path that also preserves shared inodes on stock Windows.
+
+### Highlights
+
+**Reverse-open ships end-to-end (#48).** Linux apps now appear in the Windows guest's right-click "Open with…" menu by default, with correct per-app icons in both chooser surfaces. Selecting one round-trips the file open back to the host's `xdg-open`.
+
+- Reverse-open Phase 2 series complete (#157, #159, #160, #161, #162) — host-side discovery, listener daemon, Qt Settings card, guest handlers + sync transport, default-on.
+- Reverse-open fix-forward stack (#164–#171) from real-Windows smoke — culminating in #171's embedded EXE icons via vendored rcedit (the working chooser-icon fix).
+- PR #165's hard-link inode-sharing is intentionally dropped (~500 KB × N apps on disk); no chooser-icon path also preserves shared inodes on Win10/Win11.
+- `cfg.reverse_open.enabled` defaults to `True`; turn off with `winpodx host-open disable` or the GUI Settings panel.
 
 ### Added
 

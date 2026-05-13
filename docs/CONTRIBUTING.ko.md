@@ -86,6 +86,43 @@ chore: update ruff to 0.8.x
 
 사람 co-author (예: 변경 사항을 함께 페어 프로그래밍한 동료) 는 환영 — 실제 사람 정체성 + 이메일 사용.
 
+## 릴리스 노트 작성
+
+`CHANGELOG.md` (그리고 `docs/CHANGELOG.ko.md`) 의 각 버전 섹션은 `### Highlights` 로 시작합니다 — 한 줄 헤드라인 + 3–6 개 스캔 가능한 bullet. 이것이 GitHub 릴리스 페이지 맨 위에 보이는 내용입니다. `release.yml` 이 해당 버전 섹션을 verbatim 으로 추출해서 릴리스 body 에 넣기 때문에, 섹션 맨 앞에 있는 게 릴리스 본문 맨 앞에 옴.
+
+자세한 `### Added` / `### Changed` / `### Fixed` bullet 은 그 아래에. archeology 와 exhaustive tracking 용이지 first-read 용이 아님.
+
+스켈레톤:
+
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
+
+### Highlights
+
+**한 줄 헤드라인.** 필요시 1-2 문장 추가 컨텍스트.
+
+- 가장 중요한 사용자 가시적 변경 (한 줄, 스캔 가능)
+- 두 번째 중요한 변경
+- (최대 3-6 bullets; prose 블록 금지)
+
+### Added
+- (자세한 bullet)
+
+### Changed
+- (자세한 bullet)
+
+### Fixed
+- (자세한 bullet)
+```
+
+릴리스 컷할 때 `REL-vX.Y.Z` marker tag 도 같이 푸시 — 이것이 `release.yml` 을 fire 시킴 (`wheel` + `sdist` 빌드, CHANGELOG 섹션 추출, GitHub 릴리스 body 갱신). REL- marker 없으면 버전 태그 (`vX.Y.Z`) 가 4개 패키징 워크플로우 (`obs-publish.yml`, `rhel-publish.yml`, `debs-publish.yml`, `aur-publish.yml`) 만 trigger 하고 `wheel` / `sdist` 없음 + 자동 추출 릴리스 body 없음.
+
+```bash
+git tag vX.Y.Z <commit>
+git tag REL-vX.Y.Z vX.Y.Z^{}    # nested-tag 경고 피하려고 commit 으로 dereference
+git push origin vX.Y.Z REL-vX.Y.Z
+```
+
 ## 보안
 
 보안 취약점을 발견한 경우, [SECURITY.ko.md](SECURITY.ko.md)에 설명된 절차를 따라 주세요. **공개 이슈를 열지 마세요.**

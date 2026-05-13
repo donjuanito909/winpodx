@@ -9,11 +9,38 @@
 
 ## [Unreleased]
 
+<!--
+새 버전 섹션 템플릿 — 릴리스 컷할 때 이 형식을 복사하세요.
+`### Highlights` 는 반드시 맨 위 — `release.yml` 의 awk 추출이 섹션 전체를
+verbatim 으로 가져오기 때문에 GitHub 릴리스 페이지에서 사용자가 가장 먼저 보는 곳.
+
+### Highlights
+
+**한 줄 헤드라인.** 필요시 1-2 문장 추가 컨텍스트.
+
+- 가장 중요한 사용자 가시적 변경 (한 줄, 스캔 가능)
+- 두 번째 중요한 변경
+- (최대 3-6 bullets, prose 블록 금지)
+
+### Added
+### Changed
+### Fixed
+-->
+
 ## [0.5.0] - 2026-05-13
 
 Reverse-open (#48) 이 end-to-end 출시 — 이 릴리스의 headline 기능. Linux 앱이 Windows guest 우클릭 "Open with…" 메뉴에 기본으로 노출되고, **짧은 메뉴 + 긴 "다른 앱 선택" 다이얼로그 양쪽에 앱별 아이콘이 정상 표시**됨. Phase 2 시리즈 완료 (a / b / c / d) + 전체 fix-forward 스택: per-app `.cmd` wrapper, Rust `.exe` shim, 짧은 메뉴 가시성, Firefox handoff, uninstall `--purge` scope, multi-resolution ICO, Desktop 폴더 단축키 + Quick Access 핀, 그리고 embedded-EXE-icon chooser 수정.
 
 Chooser 아이콘 문제에 대한 부연: Win10/Win11 Explorer 는 chooser entry 아이콘을 EXE 의 embedded PE resource 에서만 읽고, `Applications\<exe>\DefaultIcon` 도 per-slug ProgID 의 `\DefaultIcon` 도 무시함. PR #171 이 유일하게 동작하는 경로 — per-slug `.ico` 를 per-slug `.exe` 의 PE resource 에 직접 embed (vendored rcedit, electron/rcedit v2.0.0, MIT). PR #165 의 hard-link inode 공유 최적화는 의도적으로 폐기 (~500 KB × N 앱 디스크) — Win10/Win11 에서 chooser 아이콘과 inode 공유를 동시에 유지하는 경로는 없음.
+
+### Highlights
+
+**Reverse-open 이 end-to-end 출시 (#48).** Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 기본으로 노출, 양쪽 chooser surface 에서 앱별 정확한 아이콘. 선택 시 호스트 `xdg-open` 으로 파일 열기 round-trip.
+
+- Reverse-open Phase 2 시리즈 완료 (#157, #159, #160, #161, #162) — host 측 discovery, listener daemon, Qt Settings 카드, guest handler + sync transport, default-on.
+- Reverse-open fix-forward 스택 (#164–#171) 이 real-Windows smoke 거치고 — 최종 #171 의 vendored rcedit 통한 EXE embed 아이콘 (동작하는 chooser-icon fix) 으로 마무리.
+- PR #165 의 hard-link inode 공유는 의도적으로 폐기 (~500 KB × N 앱 디스크); Win10/Win11 에서 chooser 아이콘과 공유 inode 를 동시 유지하는 경로 없음.
+- `cfg.reverse_open.enabled` 기본값 `True`; 끄려면 `winpodx host-open disable` 또는 GUI Settings 패널.
 
 ### 추가
 
