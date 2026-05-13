@@ -7,7 +7,14 @@
 <p>Native Linux windows for every Windows app — real icons, real <code>WM_CLASS</code>,<br>
 pin-to-taskbar. FreeRDP RemoteApp + dockur/windows. Zero config.</p>
 
-<pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
+<pre><code># Latest stable release (default)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+
+# Latest main HEAD (development; may be unstable)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main
+
+# Uninstall (keeps Windows VM data; pass --purge to wipe everything)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm</code></pre>
 
 <a href="docs/images/demo.png">
   <img src="docs/images/demo.png" alt="winpodx in action — Windows apps as native Linux windows on KDE" width="720">
@@ -94,17 +101,69 @@ Or just click an app icon in your application menu. See [docs/USAGE.md](docs/USA
 
 ## Key features
 
-- **Reverse-open (new in v0.5.0).** Linux apps appear in the Windows guest's right-click "Open with…" menu by default, with correct per-app icons. Selecting one round-trips the file open to host `xdg-open`. ([details](docs/FEATURES.md#reverse-open-linux-apps-in-windows-open-with))
-- **Seamless app windows.** FreeRDP RemoteApp renders each Windows app as a native Linux window with its real icon, real `WM_CLASS`, taskbar pinning, and bidirectional file associations.
-- **Zero-config launch.** First app click auto-provisions everything: config, container, desktop entries. Auto-discovery scans the running Windows guest on first boot and registers every installed app (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) with its real icon.
-- **Multi-session RDP.** Bundled [rdprrap](https://github.com/kernalix7/rdprrap) lifts the single-session-per-user cap; each app window runs in its own independent session, up to 10 concurrent.
-- **Auto suspend / resume.** Container pauses when idle, resumes on next launch.
-- **Password auto-rotation.** 20-char cryptographic password on a 7-day cycle with atomic rollback.
-- **Peripherals out of the box.** Clipboard, sound, printer redirection, home directory share, USB drive auto-mapping — all on by default.
-- **Multi-backend.** Podman (default), Docker, libvirt/KVM, manual RDP.
-- **Offline / air-gapped install.** `--source` + `--image-tar` lets you install without network access.
+<table>
+<tr><td width="50%">
 
-See [docs/FEATURES.md](docs/FEATURES.md) for the deep dives.
+**Reverse-open (new in v0.5.0)**
+- Linux apps appear in the Windows guest's right-click "Open with…" menu by default
+- Correct per-app icons in both the short menu and the long "Choose another app" dialog
+- Selecting one round-trips the file open to host `xdg-open`
+- Auto-discovers host-side Linux apps + their MIME associations from freedesktop standards
+- Manage via `winpodx host-open` CLI or the GUI Settings panel
+- [Details →](docs/FEATURES.md#reverse-open-linux-apps-in-windows-open-with)
+
+</td><td width="50%">
+
+**Seamless app windows**
+- RemoteApp (RAIL) renders each Windows app as a native Linux window — no full desktop
+- Per-app taskbar icons via `WM_CLASS` matching (`/wm-class:<stem>` + `StartupWMClass`)
+- Bidirectional file associations: double-click `.docx` in your file manager → Word opens
+- Multi-session RDP: bundled [rdprrap](https://github.com/kernalix7/rdprrap) auto-enables up to 10 independent sessions
+- RAIL prerequisites set automatically during unattended install
+
+</td></tr>
+<tr><td width="50%">
+
+**Zero-config launch**
+- First app click auto-provisions everything: config, container, desktop entries
+- Auto-discovery on first boot scans the running Windows guest and registers every installed app with its real icon (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop)
+- Manual rescan any time via `winpodx app refresh` or the GUI Refresh button
+- Multi-backend: Podman (default), Docker, libvirt/KVM, manual RDP
+
+</td><td width="50%">
+
+**Peripherals & sharing**
+- **Clipboard**: bidirectional copy-paste (text + images) — on by default
+- **Sound**: RDP audio streaming (`/sound:sys:alsa`) — on by default
+- **Printer**: Linux printers shared to Windows — on by default
+- **Home directory**: shared as `\\tsclient\home`
+- **USB drives**: auto-mapped to drive letters (E:, F:, …) via FileSystemWatcher; subfolders work for drives plugged in after session start
+- **USB device passthrough**: opt-in via `extra_flags` (`/usb:auto`)
+
+</td></tr>
+<tr><td width="50%">
+
+**Automation & security**
+- Auto suspend / resume: container pauses when idle, resumes on next launch
+- Password auto-rotation: 20-char cryptographic password, 7-day cycle with atomic rollback
+- Smart DPI scaling: auto-detects from GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb
+- Windows debloat: telemetry, ads, Cortana, search indexing disabled by default
+- FreeRDP `extra_flags` allowlist (regex-validated) as the user-input safety boundary
+- Time sync: force Windows clock resync after host sleep/wake
+
+</td><td width="50%">
+
+**Operations & resilience**
+- Offline / air-gapped install (`--source` + `--image-tar`)
+- One-line uninstall (keeps Windows VM data unless `--purge`)
+- Health checks via `winpodx check` (pod / RDP / agent / disk / round-trip / password age)
+- Qt6 GUI: Apps / Settings / Tools / Terminal / Info pages — plus a lighter system tray
+- Stdlib-leaning Python (no pip-deps on 3.11+; one `tomli` fallback on 3.9 / 3.10)
+
+</td></tr>
+</table>
+
+See [docs/FEATURES.md](docs/FEATURES.md) for deep dives, including multi-session RDP internals, app profile schema, and the reverse-open architecture.
 
 ## Documentation
 
@@ -124,7 +183,7 @@ See [docs/FEATURES.md](docs/FEATURES.md) for the deep dives.
 | Distro | Package manager | Status |
 |--------|-----------------|--------|
 | openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll | zypper | Tested |
-| Fedora 42 / 43 | dnf | Tested |
+| Fedora 42 / 43 | dnf | Supported |
 | Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 | apt | Supported |
 | AlmaLinux / Rocky / RHEL 9 / 10 | dnf | Supported |
 | Arch / Manjaro | pacman / AUR | Supported |
@@ -160,16 +219,14 @@ For security issues, follow the process in [SECURITY.md](SECURITY.md).
   </picture>
 </a>
 
-## Support / 후원
+## Support
 
 If winpodx makes your Linux desktop a little nicer:
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/kernalix7)
 [![Fairy](https://img.shields.io/badge/🧚_Fairy-EE6E73?style=for-the-badge&logoColor=white)](https://fairy.hada.io/@kernalix7)
 
-Ko-fi for international card / PayPal payments; fairy.hada.io 는 국내 결제용.
-Bug reports, PRs, and stars on the repo are equally appreciated and free —
-버그 리포트, PR, 별점도 환영합니다.
+Ko-fi handles international cards and PayPal; fairy.hada.io is a Korean tipping platform. Bug reports, PRs, and stars on the repo are equally appreciated and free.
 
 ## License
 

@@ -7,7 +7,14 @@
 <p>Windows 앱마다 네이티브 Linux 윈도 — 진짜 아이콘, 진짜 <code>WM_CLASS</code>,<br>
 태스크바 핀 가능. FreeRDP RemoteApp + dockur/windows. Zero config.</p>
 
-<pre><code>curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash</code></pre>
+<pre><code># 최신 안정 release (기본)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash
+
+# 최신 main HEAD (개발용, 불안정할 수 있음)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/install.sh | bash -s -- --main
+
+# 언인스톨 (Windows VM 데이터 유지; 전부 삭제는 --purge)
+curl -fsSL https://raw.githubusercontent.com/kernalix7/winpodx/main/uninstall.sh | bash -s -- --confirm</code></pre>
 
 <a href="images/demo.png">
   <img src="images/demo.png" alt="winpodx 실행 모습 — KDE 데스크톱 위에서 Windows 앱이 각각 네이티브 Linux 창으로" width="720">
@@ -94,17 +101,69 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 
 ## 주요 기능
 
-- **Reverse-open (v0.5.0 신규).** Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 기본으로 노출, 앱별 정확한 아이콘과 함께. 선택 시 호스트 `xdg-open` 으로 파일 열기 round-trip. ([상세](FEATURES.ko.md#reverse-open-linux-앱이-windows-open-with-에))
-- **매끄러운 앱 윈도.** FreeRDP RemoteApp 이 각 Windows 앱을 진짜 아이콘, 진짜 `WM_CLASS`, taskbar pin, 양방향 파일 연결과 함께 네이티브 Linux 윈도로 렌더링.
-- **제로 설정 실행.** 첫 앱 클릭이 모든 것 자동 프로비저닝: config, 컨테이너, desktop 엔트리. 첫 부팅 시 자동 discovery 가 실행 중인 Windows 게스트 스캔, 설치된 모든 앱 (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) 을 실제 아이콘과 함께 등록.
-- **멀티세션 RDP.** bundled [rdprrap](https://github.com/kernalix7/rdprrap) 가 사용자당 단일 세션 제한 해제; 각 앱 윈도가 독립 세션, 최대 10 동시.
-- **자동 suspend / resume.** idle 시 컨테이너 pause, 다음 실행 시 resume.
-- **비밀번호 자동 회전.** 20자 암호학적 비밀번호, 7일 주기, atomic rollback.
-- **주변기기 즉시 동작.** 클립보드, 사운드, 프린터 리디렉션, 홈 디렉토리 공유, USB 드라이브 자동 매핑 — 모두 기본 활성.
-- **멀티 백엔드.** Podman (기본), Docker, libvirt/KVM, manual RDP.
-- **오프라인 / 에어갭 설치.** `--source` + `--image-tar` 로 네트워크 없이 설치 가능.
+<table>
+<tr><td width="50%">
 
-자세한 deep dive 는 [docs/FEATURES.ko.md](FEATURES.ko.md) 에.
+**Reverse-open (v0.5.0 신규)**
+- Linux 앱이 Windows 게스트 우클릭 "Open with…" 메뉴에 기본 노출
+- 짧은 메뉴 + 긴 "다른 앱 선택" 다이얼로그 양쪽에 앱별 정확한 아이콘
+- 선택 시 호스트 `xdg-open` 으로 파일 열기 round-trip
+- 호스트 측 Linux 앱 + MIME 연결을 freedesktop 표준에서 자동 발견
+- `winpodx host-open` CLI 또는 GUI Settings 패널로 관리
+- [상세 →](FEATURES.ko.md#reverse-open-linux-앱이-windows-open-with-에)
+
+</td><td width="50%">
+
+**매끄러운 앱 윈도**
+- RemoteApp (RAIL) 이 각 Windows 앱을 네이티브 Linux 윈도로 렌더링 — 전체 데스크톱 아님
+- `WM_CLASS` 매칭 통한 앱별 taskbar 아이콘 (`/wm-class:<stem>` + `StartupWMClass`)
+- 양방향 파일 연결: Linux 파일 관리자에서 `.docx` 더블클릭 → Word 가 열림
+- 멀티세션 RDP: bundled [rdprrap](https://github.com/kernalix7/rdprrap) 이 최대 10개 독립 세션 자동 활성화
+- RAIL 전제조건이 unattended 설치 중 자동 설정
+
+</td></tr>
+<tr><td width="50%">
+
+**제로 설정 실행**
+- 첫 앱 클릭이 모든 것 자동 프로비저닝: config, 컨테이너, desktop 엔트리
+- 첫 부팅 시 자동 discovery 가 실행 중인 Windows 게스트 스캔, 설치된 모든 앱 (Registry App Paths, Start Menu, UWP/MSIX, Chocolatey, Scoop) 을 실제 아이콘과 함께 등록
+- `winpodx app refresh` 또는 GUI Refresh 버튼으로 언제든 수동 재스캔
+- 멀티 백엔드: Podman (기본), Docker, libvirt/KVM, manual RDP
+
+</td><td width="50%">
+
+**주변기기 & 공유**
+- **클립보드**: 양방향 복사-붙여넣기 (텍스트 + 이미지) — 기본 활성
+- **사운드**: RDP 오디오 스트리밍 (`/sound:sys:alsa`) — 기본 활성
+- **프린터**: Linux 프린터가 Windows 에 공유 — 기본 활성
+- **홈 디렉토리**: `\\tsclient\home` 으로 공유
+- **USB 드라이브**: FileSystemWatcher 통한 드라이브 레터 (E:, F:, …) 자동 매핑; 세션 시작 후 꽂은 USB 도 서브폴더로 접근 가능
+- **USB 디바이스 패스스루**: `extra_flags` 에 `/usb:auto` 추가하면 opt-in
+
+</td></tr>
+<tr><td width="50%">
+
+**자동화 & 보안**
+- 자동 suspend / resume: idle 시 컨테이너 pause, 다음 실행 시 resume
+- 비밀번호 자동 회전: 20자 암호학적 비밀번호, 7일 주기, atomic rollback
+- 스마트 DPI 스케일링: GNOME, KDE, Sway, Hyprland, Cinnamon, xrdb 자동 감지
+- Windows debloat: 텔레메트리, 광고, Cortana, 검색 인덱싱 기본 비활성
+- FreeRDP `extra_flags` allowlist (regex 검증) 가 사용자 input 안전 경계
+- 시간 동기화: 호스트 sleep/wake 후 Windows 시계 강제 resync
+
+</td><td width="50%">
+
+**운영 & 회복력**
+- 오프라인 / 에어갭 설치 (`--source` + `--image-tar`)
+- 원라인 언인스톨 (Windows VM 데이터 유지; `--purge` 로 전부 삭제)
+- `winpodx check` 통한 헬스 체크 (pod / RDP / agent / disk / round-trip / 비밀번호 age)
+- Qt6 GUI: Apps / Settings / Tools / Terminal / Info 페이지 — 가벼운 시스템 트레이도 별도
+- stdlib 지향 Python (3.11+ 는 pip-deps 없음; 3.9 / 3.10 은 `tomli` 폴백 1개)
+
+</td></tr>
+</table>
+
+[docs/FEATURES.ko.md](FEATURES.ko.md) 에서 멀티세션 RDP 내부, 앱 프로필 스키마, reverse-open 아키텍처 등 자세한 deep dive 확인.
 
 ## 문서
 
@@ -124,7 +183,7 @@ winpodx app run desktop           # 전체 Windows 데스크톱
 | Distro | 패키지 매니저 | 상태 |
 |--------|-----------------|--------|
 | openSUSE Tumbleweed / Leap 15.6 / Leap 16.0 / Slowroll | zypper | Tested |
-| Fedora 42 / 43 | dnf | Tested |
+| Fedora 42 / 43 | dnf | Supported |
 | Debian 12 / 13, Ubuntu 24.04 / 25.04 / 25.10 | apt | Supported |
 | AlmaLinux / Rocky / RHEL 9 / 10 | dnf | Supported |
 | Arch / Manjaro | pacman / AUR | Supported |
