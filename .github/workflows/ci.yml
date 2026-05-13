@@ -21,10 +21,21 @@ jobs:
       - run: ruff format --check src/ tests/
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        runner: ["ubuntu-latest"]
+        include:
+          # aarch64 regression catch — winpodx ships arch-aware code paths
+          # (image picker in core/config.py, compose ARGUMENTS in
+          # core/pod/compose.py, install.sh arch detection) for ARM64
+          # Linux hosts per #141. The x86_64 matrix covers all 5 Python
+          # versions; we keep aarch64 minimal at the latest Python only
+          # so the regression check is fast + cheap. GitHub Actions
+          # provides free aarch64 runners for public repos since 2024.
+          - python-version: "3.13"
+            runner: "ubuntu-24.04-arm"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
