@@ -293,20 +293,48 @@ def test_check_freerdp_reports_missing(monkeypatch):
 # M8 / M9
 
 
-def test_pod_config_image_and_disk_size_defaults():
+def test_pod_config_image_and_disk_size_defaults(monkeypatch):
+    """Default image is arch-aware: x86_64 hosts get DOCKUR_IMAGE_PIN."""
+    import winpodx.core.config as _config
     from winpodx.core.config import DOCKUR_IMAGE_PIN
 
+    monkeypatch.setattr(_config.platform, "machine", lambda: "x86_64")
     pod = PodConfig()
     assert pod.image == DOCKUR_IMAGE_PIN
     assert pod.disk_size == "64G"
 
 
-def test_pod_config_image_and_disk_size_fallback_on_empty():
+def test_pod_config_image_defaults_arm_on_aarch64(monkeypatch):
+    """On aarch64 hosts the default image switches to dockur/windows-arm.
+
+    Regression guard for issue #141 Phase 1.
+    """
+    import winpodx.core.config as _config
+    from winpodx.core.config import DOCKUR_IMAGE_ARM_PIN
+
+    monkeypatch.setattr(_config.platform, "machine", lambda: "aarch64")
+    pod = PodConfig()
+    assert pod.image == DOCKUR_IMAGE_ARM_PIN
+
+
+def test_pod_config_image_and_disk_size_fallback_on_empty(monkeypatch):
+    import winpodx.core.config as _config
     from winpodx.core.config import DOCKUR_IMAGE_PIN
 
+    monkeypatch.setattr(_config.platform, "machine", lambda: "x86_64")
     pod = PodConfig(image="", disk_size="   ")
     assert pod.image == DOCKUR_IMAGE_PIN
     assert pod.disk_size == "64G"
+
+
+def test_pod_config_image_fallback_on_empty_arm(monkeypatch):
+    """Empty-string image fallback honours host arch on aarch64 too."""
+    import winpodx.core.config as _config
+    from winpodx.core.config import DOCKUR_IMAGE_ARM_PIN
+
+    monkeypatch.setattr(_config.platform, "machine", lambda: "aarch64")
+    pod = PodConfig(image="", disk_size="   ")
+    assert pod.image == DOCKUR_IMAGE_ARM_PIN
 
 
 def test_pod_config_image_and_disk_size_persist(tmp_path, monkeypatch):

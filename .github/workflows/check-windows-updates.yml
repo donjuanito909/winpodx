@@ -15,31 +15,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check latest dockur Windows image
+      - name: Check latest dockur Windows images
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # x86_64 Windows image (dockur/windows)
           DOCKUR_LATEST=$(gh api repos/dockur/windows/releases/latest --jq '.tag_name' 2>/dev/null || echo "unknown")
           echo "dockur_latest=$DOCKUR_LATEST" >> "$GITHUB_OUTPUT"
 
+          # ARM Windows image (dockur/windows-arm) — pulled in by aarch64
+          # hosts via core/config.py:_default_pod_image. See #141.
+          DOCKUR_ARM_LATEST=$(gh api repos/dockur/windows-arm/releases/latest --jq '.tag_name' 2>/dev/null || echo "unknown")
+          echo "dockur_arm_latest=$DOCKUR_ARM_LATEST" >> "$GITHUB_OUTPUT"
+
           VERSION_FILE="config/oem/VERSIONS.txt"
           DOCKUR_CURRENT=""
+          DOCKUR_ARM_CURRENT=""
           if [ -f "$VERSION_FILE" ]; then
             DOCKUR_CURRENT=$(grep "^dockur=" "$VERSION_FILE" | cut -d= -f2 || echo "")
+            DOCKUR_ARM_CURRENT=$(grep "^dockur-arm=" "$VERSION_FILE" | cut -d= -f2 || echo "")
           fi
 
-          NEEDS_UPDATE=false
+          NEEDS_UPDATE_X86=false
           if [ "$DOCKUR_LATEST" != "$DOCKUR_CURRENT" ] && [ "$DOCKUR_LATEST" != "unknown" ]; then
-            NEEDS_UPDATE=true
+            NEEDS_UPDATE_X86=true
             echo "dockur/windows: ${DOCKUR_CURRENT:-none} -> $DOCKUR_LATEST"
           fi
 
-          echo "needs_update=$NEEDS_UPDATE" >> "$GITHUB_OUTPUT"
-          echo "dockur_current=$DOCKUR_CURRENT" >> "$GITHUB_OUTPUT"
+          NEEDS_UPDATE_ARM=false
+          if [ "$DOCKUR_ARM_LATEST" != "$DOCKUR_ARM_CURRENT" ] && [ "$DOCKUR_ARM_LATEST" != "unknown" ]; then
+            NEEDS_UPDATE_ARM=true
+            echo "dockur/windows-arm: ${DOCKUR_ARM_CURRENT:-none} -> $DOCKUR_ARM_LATEST"
+          fi
 
-      - name: Open tracking issue
-        if: steps.check.outputs.needs_update == 'true'
+          echo "needs_update_x86=$NEEDS_UPDATE_X86" >> "$GITHUB_OUTPUT"
+          echo "needs_update_arm=$NEEDS_UPDATE_ARM" >> "$GITHUB_OUTPUT"
+          echo "dockur_current=$DOCKUR_CURRENT" >> "$GITHUB_OUTPUT"
+          echo "dockur_arm_current=$DOCKUR_ARM_CURRENT" >> "$GITHUB_OUTPUT"
+
+      - name: Open x86_64 tracking issue
+        if: steps.check.outputs.needs_update_x86 == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKUR_LATEST: ${{ steps.check.outputs.dockur_latest }}
@@ -58,15 +74,58 @@ jobs:
           gh issue create \
             --title "$TITLE" \
             --body "$(cat <<EOF
-          ## Windows Build Update
+          ## Windows Build Update (x86_64)
 
           **dockur/windows**: ${DOCKUR_CURRENT:-unknown} → $DOCKUR_LATEST
 
           ### Action items
           1. Update \`config/oem/VERSIONS.txt\` → \`dockur=$DOCKUR_LATEST\`
-          2. Recreate container to pick up the new Windows build
-          3. Check if \`TargetReleaseVersionInfo\` in \`config/oem/install.bat\` needs updating
+          2. Pull the new image and refresh \`DOCKUR_IMAGE_PIN\` in \`src/winpodx/core/config.py\`:
+             \`\`\`
+             podman pull docker.io/dockurr/windows:latest
+             podman image inspect docker.io/dockurr/windows:latest -f '{{json .RepoDigests}}'
+             \`\`\`
+          3. Recreate container to pick up the new Windows build
+          4. Check if \`TargetReleaseVersionInfo\` in \`config/oem/install.bat\` needs updating
 
           Release notes: https://github.com/dockur/windows/releases/tag/$DOCKUR_LATEST
+          EOF
+          )"
+
+      - name: Open aarch64 tracking issue
+        if: steps.check.outputs.needs_update_arm == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKUR_ARM_LATEST: ${{ steps.check.outputs.dockur_arm_latest }}
+          DOCKUR_ARM_CURRENT: ${{ steps.check.outputs.dockur_arm_current }}
+        run: |
+          TITLE="chore: dockur/windows-arm update available ($DOCKUR_ARM_LATEST)"
+
+          EXISTING=$(gh issue list \
+            --search "$TITLE in:title is:open" \
+            --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "Issue #$EXISTING already tracks this update, skipping"
+            exit 0
+          fi
+
+          gh issue create \
+            --title "$TITLE" \
+            --body "$(cat <<EOF
+          ## Windows Build Update (aarch64)
+
+          **dockur/windows-arm**: ${DOCKUR_ARM_CURRENT:-unknown} → $DOCKUR_ARM_LATEST
+
+          ### Action items
+          1. Update \`config/oem/VERSIONS.txt\` → \`dockur-arm=$DOCKUR_ARM_LATEST\`
+          2. Pull the new image and refresh \`DOCKUR_IMAGE_ARM_PIN\` in \`src/winpodx/core/config.py\`:
+             \`\`\`
+             podman pull docker.io/dockurr/windows-arm:latest
+             podman image inspect docker.io/dockurr/windows-arm:latest -f '{{json .RepoDigests}}'
+             \`\`\`
+          3. Recreate container on an aarch64 host to pick up the new Windows-on-ARM build
+          4. Check if \`TargetReleaseVersionInfo\` in \`config/oem/install.bat\` needs updating
+
+          Release notes: https://github.com/dockur/windows-arm/releases/tag/$DOCKUR_ARM_LATEST
           EOF
           )"

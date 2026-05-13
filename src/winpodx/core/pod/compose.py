@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import secrets
 import shutil
 import string
@@ -52,7 +53,7 @@ name: "winpodx"
       LANGUAGE: "English"
       REGION: "en-001"
       KEYBOARD: "en-US"
-      ARGUMENTS: "-cpu host,arch_capabilities=off"
+      ARGUMENTS: "{qemu_arguments}"
       USER_PORTS: "8765"
     volumes:
       - {storage_mount}
@@ -89,6 +90,22 @@ def _build_compose_template(backend: str) -> str:
         template += _COMPOSE_PODMAN_EXTRAS
     template += _COMPOSE_TEMPLATE_FOOTER
     return template
+
+
+def _qemu_arguments_for_host() -> str:
+    """Return the QEMU ``ARGUMENTS:`` value matching the host architecture.
+
+    On x86_64 we pass ``arch_capabilities=off`` so QEMU doesn't expose
+    Intel-CPU-only capability bits the guest's Windows kernel sometimes
+    trips over. On aarch64 (Raspberry Pi 5, Ampere, Graviton, …) that
+    sub-option doesn't exist — passing it crashes QEMU with
+    ``Property 'host-arm-cpu.arch_capabilities' not found`` (issue
+    #140). On aarch64 we pass only ``-cpu host`` and let QEMU pick the
+    default ARM capability mask.
+    """
+    if platform.machine() == "aarch64":
+        return "-cpu host"
+    return "-cpu host,arch_capabilities=off"
 
 
 def _yaml_escape(val: str) -> str:
@@ -241,6 +258,7 @@ def _build_compose_content(cfg: Config) -> str:
         oem_dir=_find_oem_dir(),
         top_volumes=top_volumes,
         storage_mount=storage_mount,
+        qemu_arguments=_qemu_arguments_for_host(),
     )
 
 

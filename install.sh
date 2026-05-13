@@ -135,6 +135,32 @@ detect_distro() {
 DISTRO=$(detect_distro)
 log "Detected distro: $DISTRO"
 
+# Detect host architecture. winpodx ships two dockur image variants:
+#
+#   x86_64  → dockurr/windows (x86_64 Windows guest, native via KVM)
+#   aarch64 → dockurr/windows-arm (Windows-on-ARM guest, native via KVM)
+#
+# core/config.py:_default_pod_image picks the matching image on a fresh
+# install. install.sh only logs the detected arch here for visibility —
+# the image picker fires inside `winpodx setup` later.
+ARCH="$(uname -m)"
+case "$ARCH" in
+    x86_64|amd64)
+        ARCH_LABEL="x86_64"
+        ;;
+    aarch64|arm64)
+        ARCH_LABEL="aarch64"
+        ;;
+    *)
+        ARCH_LABEL="$ARCH"
+        warn "Untested host architecture: $ARCH"
+        warn "winpodx is packaged for x86_64 and aarch64. The container image"
+        warn "picker will fall through to the x86_64 default; pod start will"
+        warn "likely fail at QEMU. Proceed only if you know what you're doing."
+        ;;
+esac
+log "Detected arch: $ARCH_LABEL"
+
 # Map generic dependency names to distro-specific package names
 pkg_name() {
     local dep="$1"

@@ -90,10 +90,22 @@ def _update_image_pin() -> int:
         print(f"`{backend}` not found in PATH.")
         return 2
 
-    print("Pulling docker.io/dockurr/windows:latest...")
+    # Pick the upstream tag matching host architecture. aarch64 hosts
+    # (Raspberry Pi 5, Ampere, Graviton, …) get the Windows-on-ARM
+    # image; everything else gets the x86_64 build. See
+    # ``core/config.py:_default_pod_image`` for the matching rule on
+    # fresh installs.
+    import platform as _platform
+
+    if _platform.machine() == "aarch64":
+        upstream_tag = "docker.io/dockurr/windows-arm:latest"
+    else:
+        upstream_tag = "docker.io/dockurr/windows:latest"
+
+    print(f"Pulling {upstream_tag}...")
     try:
         subprocess.run(
-            [backend, "pull", "docker.io/dockurr/windows:latest"],
+            [backend, "pull", upstream_tag],
             check=True,
         )
     except subprocess.CalledProcessError as e:
@@ -110,7 +122,7 @@ def _update_image_pin() -> int:
                 backend,
                 "image",
                 "inspect",
-                "docker.io/dockurr/windows:latest",
+                upstream_tag,
                 "-f",
                 "{{json .RepoDigests}}",
             ],

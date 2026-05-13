@@ -8,6 +8,7 @@ section drives the agent-first install flow (see
 
 from __future__ import annotations
 
+import platform
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,6 +45,34 @@ DOCKUR_IMAGE_PIN = (
     "docker.io/dockurr/windows@sha256:"
     "20b398ab935465f97ec8ab06489f7a85a5ad58e74e036ce66cc3c9172e7dbea8"
 )
+
+# Pinned dockur/windows-arm image — used as the default ``cfg.pod.image``
+# when the host architecture is aarch64. The image runs Windows 11 ARM
+# inside the container; on ARM64 hosts (e.g. Raspberry Pi 5) KVM
+# accelerates the guest natively. The pinned digest is the multi-arch
+# OCI index, so container runtimes pick the right platform manifest
+# (amd64 or arm64) automatically.
+#
+# As of 2026-05-13:
+DOCKUR_IMAGE_ARM_PIN = (
+    "docker.io/dockurr/windows-arm@sha256:"
+    "9c13f28f484bdf129fb8d951efb3fe3ff0cff20828efa5ed4b62ff1597a62611"
+)
+
+
+def _default_pod_image() -> str:
+    """Pick the dockur image pin matching the host architecture.
+
+    ``platform.machine()`` returns ``aarch64`` on ARM64 Linux hosts
+    (Raspberry Pi 5, Ampere Altra, Graviton, etc.); ``x86_64`` on
+    Intel/AMD. Everything else falls through to the x86_64 pin —
+    winpodx isn't packaged for those platforms but the fall-through
+    means an unexpected arch won't crash config load; it just installs
+    the wrong image and the user gets a clear QEMU error at pod start.
+    """
+    if platform.machine() == "aarch64":
+        return DOCKUR_IMAGE_ARM_PIN
+    return DOCKUR_IMAGE_PIN
 
 
 @dataclass
@@ -91,7 +120,13 @@ class PodConfig:
     # dockur can override to a tag in ``winpodx.toml``; explicit
     # update is via ``winpodx setup --update-image`` (pulls latest +
     # rewrites the pin).
-    image: str = DOCKUR_IMAGE_PIN
+    #
+    # Default is arch-aware (``_default_pod_image``): x86_64 hosts get
+    # ``dockurr/windows`` (x86_64 Windows guest), aarch64 hosts get
+    # ``dockurr/windows-arm`` (Windows-on-ARM guest). The picker only
+    # fires for fresh installs — existing ``winpodx.toml`` files have
+    # an explicit ``image`` line and round-trip unchanged.
+    image: str = field(default_factory=_default_pod_image)
     # Virtual disk size exposed in the compose template (e.g. "64G", "128G").
     disk_size: str = "64G"
     # Maximum concurrent RemoteApp sessions. Writes
@@ -132,7 +167,7 @@ class PodConfig:
             # Fall back silently so a hand-edited config does not brick setup.
             self.container_name = _DEFAULT_CONTAINER_NAME
         if not isinstance(self.image, str) or not self.image.strip():
-            self.image = DOCKUR_IMAGE_PIN
+            self.image = _default_pod_image()
         if not isinstance(self.disk_size, str) or not self.disk_size.strip():
             self.disk_size = "64G"
         # storage_path: keep empty (named-volume mode) or coerce to a
