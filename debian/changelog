@@ -1,3 +1,20 @@
+winpodx (0.5.2) unstable; urgency=medium
+
+  * install.sh: pick freerdp3-x11 over freerdp2-x11 when available
+    (reported by @basti189, #198). Fixes the hard install failure on
+    Debian 13 (Trixie) and recent Ubuntu (24.10 / 25.04 / 25.10)
+    where the stock apt repos no longer ship freerdp2-x11; pkg_name()
+    now probes apt-cache show and prefers freerdp3-x11, falling back
+    to freerdp2-x11 only on Debian <=12 / Ubuntu 22.04 stock.
+  * install.sh: Atomic Fedora install path (by @Zeik0s, #163).
+    Silverblue / Kinoite / Sericea / Bluefin / Bazzite installs now
+    autodetect rpm-ostree and layer winpodx via OBS in one
+    transaction (rpm-ostree install --apply-live --idempotent), no
+    per-package reboot loop. Falls back to staged install + reboot
+    prompt if the booted deployment rejects live apply.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Wed, 14 May 2026 13:00:00 +0000
+
 winpodx (0.5.1) unstable; urgency=medium
 
   * Win10+ Windows edition picker (#178). LTSC IoT, Win11 LTSC,
