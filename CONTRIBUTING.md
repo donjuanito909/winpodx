@@ -147,6 +147,8 @@ Example:
   OBS repo with `rpm-ostree install --apply-live`. (by @Zeik0s, #163)
 - LTSC IoT and Win10 LTSC pickable from Settings or `--win-version`.
   (reported by @gabe39, #178)
+- Dynamic Desktop Window Resolution — Full Desktop sessions now resize
+  the FreeRDP client window automatically. (by @Zeik0s, #202)
 ```
 
 The "no AI tool co-author trailers" rule above is unrelated: it bans
