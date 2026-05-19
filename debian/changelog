@@ -1,3 +1,16 @@
+winpodx (0.5.4) unstable; urgency=medium
+
+  * Same-day hotfix for v0.5.3 Debian/Ubuntu package build failure.
+    Older `hatchling` (Ubuntu 24.04 ships 1.18.0) maintains its own
+    Trove classifier whitelist and rejects
+    `Programming Language :: Python :: 3.14` with
+    `ValueError: Unknown classifier`. The classifier line is dropped
+    from pyproject.toml; CI matrix still runs the Python 3.14 leg, so
+    functional 3.14 coverage is unchanged. RPM / OBS / AUR / GitHub
+    Release in v0.5.3 were unaffected.
+
+ -- Kim DaeHyun <kernalix7@kodenet.io>  Tue, 19 May 2026 15:00:00 +0000
+
 winpodx (0.5.3) unstable; urgency=medium
 
   * Compose up/down timeout is now pull-friendly (#212, reported by

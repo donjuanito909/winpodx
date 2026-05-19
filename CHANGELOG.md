@@ -28,6 +28,21 @@ verbatim.
 ### Fixed
 -->
 
+## [0.5.4] - 2026-05-19
+
+Same-day hotfix: the v0.5.3 Debian/Ubuntu package build broke on Ubuntu 24.04 because the older `hatchling` shipped there rejects the `Programming Language :: Python :: 3.14` Trove classifier (its known-classifier whitelist predates the 3.14 stable release). The classifier is removed; the CI matrix still tests Python 3.14 functionally. No code change.
+
+### Highlights
+
+**Hotfix release.** `.deb` build on Ubuntu 24.04 failed in v0.5.3 because of an unknown-classifier rejection in `hatchling`. The `Programming Language :: Python :: 3.14` Trove classifier line is dropped; CI matrix still tests 3.14.
+
+- v0.5.3 Debian/Ubuntu package build is now green again — RPM / OBS / AUR / GitHub Release were unaffected and stay on v0.5.3 contents.
+- Everything else from v0.5.3 (compose timeout #212, FreeRDP launch error surfacing #213 / #214, Ubuntu 26.04 packaging #206, Windows language config #201, dynamic desktop resolution #197) is carried forward.
+
+### Fixed
+
+- **Debian/Ubuntu package build fails with `Unknown classifier: Programming Language :: Python :: 3.14`.** Older `hatchling` (Ubuntu 24.04 ships 1.18.0) maintains its own Trove-classifier whitelist and rejects classifiers added after its release. v0.5.3's pyproject.toml claim of 3.14 was cosmetic — actual Python 3.14 coverage comes from the CI matrix, not the classifier list. The line is dropped; functional 3.14 testing is unchanged.
+
 ## [0.5.3] - 2026-05-19
 
 User-report follow-up release. Fixes slow-link compose timeout (#212), eliminates the silent "launched but no window" failure mode that #213 / #214 surfaced, lands Ubuntu 26.04 packaging + Python 3.14 in the CI matrix (#206), Windows language / region / keyboard configurability (#201), and the dynamic desktop resolution feature (#197).

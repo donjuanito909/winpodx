@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "winpodx"
-version = "0.5.3"
+version = "0.5.4"
 description = "Windows app integration for Linux desktop"
 readme = "README.md"
 license = "MIT"
@@ -25,7 +25,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
     "Topic :: Desktop Environment",
 ]
 
